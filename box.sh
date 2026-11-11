@@ -45,7 +45,7 @@ case "$COMMAND" in
     
     # Generate SSH key
     echo "Generating SSH key pair..."
-    ssh-keygen -t rsa -b 4096 -f ./box_ssh_key -N "" -C "my-gpu-box"
+    ssh-keygen -t rsa -b 4096 -f ./box_ssh_key -N "" -C "gpushed"
     
     # Check if config folder exists, if not create example
     if [ ! -d "./config" ]; then
@@ -73,7 +73,7 @@ case "$COMMAND" in
     # Auto-generate SSH key if it doesn't exist
     if [ ! -f "./box_ssh_key" ]; then
       echo "🔑 SSH key not found, generating..."
-      ssh-keygen -t rsa -b 4096 -f ./box_ssh_key -N "" -C "my-gpu-box"
+      ssh-keygen -t rsa -b 4096 -f ./box_ssh_key -N "" -C "gpushed"
       echo "  ✅ SSH key generated"
       echo ""
     fi

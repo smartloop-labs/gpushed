@@ -1,6 +1,6 @@
-# my-gpu-box
+# gpushed
 
-Spin up your own NVIDIA GPU box on Google Cloud with one command, with no
+Your own GPU shed: spin up an NVIDIA GPU box on Google Cloud with one command, with no
 waitlist and no day-long queue for capacity. You get a clean Ubuntu 22.04 VM with
 the NVIDIA driver and CUDA installed, an SSH key, and a static IP. Tear it
 down when you're done so you only pay for the hours you use.
@@ -35,8 +35,8 @@ nvidia-smi       # on the box
 ## Quick start
 
 ```bash
-git clone https://github.com/smartlooplabs/my-gpu-box.git
-cd my-gpu-box
+git clone https://github.com/smartlooplabs/gpushed.git
+cd gpushed
 
 ./box.sh init                 # generates ./box_ssh_key and config/prod.tfvars
 $EDITOR config/prod.tfvars    # set project_id (and region/zone if you like)

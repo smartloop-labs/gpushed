@@ -20,7 +20,7 @@ terraform {
   #
   # backend "gcs" {
   #   bucket = "your-terraform-state-bucket"
-  #   prefix = "my-gpu-box"
+  #   prefix = "gpushed"
   # }
 }
 
