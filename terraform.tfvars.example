@@ -1,0 +1,25 @@
+project_id         = "your-gcp-project-id"
+region             = "us-central1"
+zone               = "us-central1-f"
+vpc_cidr_block     = "10.0.0.0/16"
+
+# DNS Configuration (optional - leave empty to use nip.io)
+dns_zone_name      = ""                  # Name of an existing Cloud DNS zone, or "" for nip.io
+dns_domain         = ""                  # e.g. "example.com." (trailing dot)
+vm_hostname        = "box"               # Creates box.example.com
+
+# VM Configuration
+machine_type       = "a2-highgpu-1g"     # A100 GPU instance
+gpu_type           = "nvidia-tesla-a100"
+gpu_count          = 0                   # 0 for A2 instances (GPU built-in), 1+ for others
+
+# SSH Configuration
+# NOTE: Don't use 'admin', 'root', or 'ubuntu' - they conflict with system users/groups
+admin_username     = "boxuser"
+admin_ssh_keys = [
+  {
+    username   = "boxuser"
+    public_key = "./box_ssh_key.pub"
+  }
+]
+
