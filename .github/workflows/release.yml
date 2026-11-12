@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # re-publish the installer site without a release
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build package
+        run: |
+          mkdir -p dist build
+          git archive --format=tar --prefix=gpushed/ HEAD | tar -x -C build
+          echo "${GITHUB_REF_NAME}" > build/gpushed/VERSION
+          tar -czf dist/gpushed.tar.gz -C build gpushed
+          (cd dist && sha256sum gpushed.tar.gz > gpushed.tar.gz.sha256)
+          cp install.sh dist/install.sh
+          tar -tzf dist/gpushed.tar.gz
+
+      - name: Smoke test installer against the built package
+        run: |
+          python3 -m http.server 8000 --directory dist &
+          sleep 1
+          sed 's|local base="https://github.com/$repo/releases/download/$version"|local base="http://localhost:8000"|' install.sh > /tmp/install-local.sh
+          grep -q 'base="http://localhost:8000"' /tmp/install-local.sh
+          GPUSHED_VERSION="${GITHUB_REF_NAME}" GPUSHED_HOME=/tmp/gp GPUSHED_BIN_DIR=/tmp/gpbin bash /tmp/install-local.sh
+          test "$(/tmp/gpbin/gpushed version)" = "${GITHUB_REF_NAME}"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/install.sh dist/gpushed.tar.gz dist/gpushed.tar.gz.sha256 \
+            --title "${GITHUB_REF_NAME}" --generate-notes
+
+  # Serve install.sh at https://gpushed.smartloop.ai so the install command is
+  #   curl -fsSL gpushed.smartloop.ai | bash
+  # It's the same script attached to the release; it installs from Releases.
+  pages:
+    needs: release
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build site
+        run: |
+          mkdir -p site
+          cp install.sh site/index.html
+          cp install.sh site/install.sh
+          touch site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
