@@ -6,10 +6,12 @@ the NVIDIA driver and CUDA installed, an SSH key, and a static IP. Tear it
 down when you're done so you only pay for the hours you use.
 
 ```bash
-./box.sh up      # create the VM and install the NVIDIA driver + CUDA
-./box.sh ssh     # connect
+curl -fsSL https://github.com/smartlooplabs/gpushed/releases/latest/download/install.sh | bash
+
+gpushed up       # create the VM and install the NVIDIA driver + CUDA
+gpushed ssh      # connect
 nvidia-smi       # on the box
-./box.sh down    # destroy everything
+gpushed down     # destroy everything
 ```
 
 ## What you get
@@ -32,15 +34,34 @@ nvidia-smi       # on the box
   gcloud auth application-default login
   ```
 
+## Install
+
+```bash
+curl -fsSL https://github.com/smartlooplabs/gpushed/releases/latest/download/install.sh | bash
+```
+
+This downloads the latest release into `~/.gpushed`, verifies its SHA-256
+checksum and links the `gpushed` command into `~/.local/bin`. Your SSH key,
+config and Terraform state also live in `~/.gpushed`, and survive upgrades.
+
+| Variable | Description | Default |
+|---|---|---|
+| `GPUSHED_VERSION` | Release tag to install, e.g. `v0.1.0` | latest |
+| `GPUSHED_HOME` | Install directory (also holds key, config, state) | `~/.gpushed` |
+| `GPUSHED_BIN_DIR` | Where the `gpushed` command is linked | `~/.local/bin` |
+
+Upgrade with `gpushed update`. To uninstall, run `gpushed down` first, then
+`rm -rf ~/.gpushed ~/.local/bin/gpushed`.
+
+Prefer a checkout? `git clone https://github.com/smartlooplabs/gpushed.git`
+and use `./box.sh` in place of `gpushed`; everything works the same.
+
 ## Quick start
 
 ```bash
-git clone https://github.com/smartlooplabs/gpushed.git
-cd gpushed
-
-./box.sh init                 # generates ./box_ssh_key and config/prod.tfvars
-$EDITOR config/prod.tfvars    # set project_id (and region/zone if you like)
-./box.sh up
+gpushed init      # generates an SSH key and config/prod.tfvars
+gpushed config    # set project_id (and region/zone if you like)
+gpushed up
 ```
 
 `up` creates the infrastructure, waits for SSH, then runs the setup script
@@ -48,7 +69,7 @@ and streams its output. First boot takes about 10–15 minutes, mostly
 downloading the driver and CUDA. When it finishes:
 
 ```bash
-./box.sh ssh
+gpushed ssh
 nvidia-smi
 ```
 
@@ -58,19 +79,22 @@ If `nvidia-smi` can't talk to the driver right after setup, `sudo reboot` once.
 
 | Command | What it does |
 |---|---|
-| `./box.sh init` | Generate an SSH key pair and `config/prod.tfvars` from the example |
-| `./box.sh up` | Create the VM and provision it |
-| `./box.sh setup` | Re-run provisioning on an existing VM |
-| `./box.sh ssh` | SSH into the VM |
-| `./box.sh status` | Show the VM's Terraform outputs |
-| `./box.sh down` | Destroy the VM and everything created with it |
+| `gpushed init` | Generate an SSH key pair and `config/prod.tfvars` from the example |
+| `gpushed up` | Create the VM and provision it |
+| `gpushed setup` | Re-run provisioning on an existing VM |
+| `gpushed ssh` | SSH into the VM |
+| `gpushed status` | Show the VM's Terraform outputs |
+| `gpushed down` | Destroy the VM and everything created with it |
+| `gpushed config` | Open `config/prod.tfvars` in `$EDITOR` |
+| `gpushed version` | Show the installed version |
+| `gpushed update` | Upgrade to the latest release |
 
 Each SSH key gets its own Terraform workspace, so teammates with different
 keys can each run their own box from the same checkout.
 
 ## Configuration
 
-Settings live in `config/prod.tfvars` (gitignored). See
+Settings live in `~/.gpushed/config/prod.tfvars` (or `config/prod.tfvars` in a checkout; gitignored). See
 [`terraform.tfvars.example`](terraform.tfvars.example).
 
 | Variable | Description | Default |
@@ -111,7 +135,7 @@ bucket you own.
 
 `main.tf` passes [`scripts/startup-wrapper.sh`](scripts/startup-wrapper.sh)
 (which embeds [`scripts/setup.sh`](scripts/setup.sh)) as the VM's startup
-script. Both the boot-time startup service and `box.sh up` run it; a lock
+script. Both the boot-time startup service and `gpushed up` run it; a lock
 makes the second run wait and then exit, so they never fight over apt.
 
 Setup makes apt use IPv4 only (GCE VMs have no IPv6 route) and gives it short
@@ -130,7 +154,7 @@ the apt lock until then.
 ## Costs
 
 GPU VMs are expensive: an `a2-highgpu-1g` runs roughly $3–4/hour on demand.
-The VM bills while it exists, even when idle. Run `./box.sh down` when you're
+The VM bills while it exists, even when idle. Run `gpushed down` when you're
 done.
 
 ## Security notes
@@ -145,3 +169,13 @@ done.
 ## License
 
 [Apache-2.0](LICENSE)
+
+## Releasing
+
+Push a version tag and the [Release workflow](.github/workflows/release.yml)
+builds `gpushed.tar.gz`, its `.sha256` and `install.sh`, smoke-tests the
+installer, and publishes them as a GitHub release:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```

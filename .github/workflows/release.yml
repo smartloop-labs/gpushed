@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: |
+          mkdir -p dist build
+          git archive --format=tar --prefix=gpushed/ HEAD | tar -x -C build
+          echo "${GITHUB_REF_NAME}" > build/gpushed/VERSION
+          tar -czf dist/gpushed.tar.gz -C build gpushed
+          (cd dist && sha256sum gpushed.tar.gz > gpushed.tar.gz.sha256)
+          cp install.sh dist/install.sh
+          tar -tzf dist/gpushed.tar.gz
+
+      - name: Smoke test installer against the built package
+        run: |
+          python3 -m http.server 8000 --directory dist &
+          sleep 1
+          sed 's|base="https://github.com/$repo/releases/latest/download"|base="http://localhost:8000"|' install.sh > /tmp/install-local.sh
+          GPUSHED_HOME=/tmp/gp GPUSHED_BIN_DIR=/tmp/gpbin bash /tmp/install-local.sh
+          test "$(/tmp/gpbin/gpushed version)" = "${GITHUB_REF_NAME}"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/install.sh dist/gpushed.tar.gz dist/gpushed.tar.gz.sha256 \
+            --title "${GITHUB_REF_NAME}" --generate-notes

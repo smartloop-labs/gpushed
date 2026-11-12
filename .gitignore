@@ -45,3 +45,7 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Written by the installer / release build
+VERSION
+.manifest

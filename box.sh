@@ -2,11 +2,40 @@
 
 set -e
 
+GPUSHED_REPO="smartlooplabs/gpushed"
+
+# Find the directory holding the Terraform files, following symlinks
+# (e.g. ~/.local/bin/gpushed -> ~/.gpushed/box.sh). The SSH key, config and
+# Terraform state live there too, so run everything from it.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  LINK_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$LINK_DIR/$SOURCE"
+done
+BOX_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# How to refer to ourselves in messages: `gpushed` when on PATH, else as invoked.
+PROG="$0"
+if [ "$(command -v "$(basename "$0")" 2>/dev/null)" = "$0" ]; then
+  PROG="$(basename "$0")"
+fi
+
+cd "$BOX_DIR"
+
+box_version() {
+  if [ -f "$BOX_DIR/VERSION" ]; then
+    cat "$BOX_DIR/VERSION"
+  else
+    git -C "$BOX_DIR" describe --tags --always --dirty 2>/dev/null || echo "unknown"
+  fi
+}
+
 COMMAND="${1:-}"
 
 show_usage() {
   cat << EOF
-Usage: ./box.sh COMMAND
+Usage: $PROG COMMAND
 
 Commands:
   init      Initialize project (generate SSH keys)
@@ -15,15 +44,20 @@ Commands:
   down      Destroy the VM instance
   status    Show VM status and outputs
   ssh       SSH into the VM
+  config    Edit the configuration (config/prod.tfvars)
+  version   Show the installed version
+  update    Update to the latest release
   help      Show this help message
 
+Files (SSH key, config, Terraform state) live in: $BOX_DIR
+
 Examples:
-  ./box.sh init     # Generate SSH keys (first time)
-  ./box.sh up       # Create VM
-  ./box.sh setup    # Run installation script manually
-  ./box.sh down     # Destroy VM
-  ./box.sh status   # Show VM info
-  ./box.sh ssh      # Connect to VM
+  $PROG init     # Generate SSH keys (first time)
+  $PROG up       # Create VM
+  $PROG setup    # Run installation script manually
+  $PROG down     # Destroy VM
+  $PROG status   # Show VM info
+  $PROG ssh      # Connect to VM
 EOF
 }
 
@@ -33,7 +67,7 @@ case "$COMMAND" in
     
     # Check if SSH key already exists
     if [ -f "./box_ssh_key" ]; then
-      echo "⚠️  SSH key already exists at ./box_ssh_key"
+      echo "⚠️  SSH key already exists at $BOX_DIR/box_ssh_key"
       read -p "Do you want to regenerate it? (y/N): " -n 1 -r
       echo
       if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -54,19 +88,19 @@ case "$COMMAND" in
     
     # Create prod.tfvars from example if it doesn't exist
     if [ ! -f "./config/prod.tfvars" ] && [ -f "./terraform.tfvars.example" ]; then
-      echo "Creating config/prod.tfvars from example..."
+      echo "Creating $BOX_DIR/config/prod.tfvars from example..."
       cp terraform.tfvars.example config/prod.tfvars
-      echo "⚠️  Remember to update config/prod.tfvars with your settings!"
+      echo "⚠️  Remember to update $BOX_DIR/config/prod.tfvars with your settings!"
     fi
     
     echo ""
     echo "✅ SSH key generated successfully!"
-    echo "   Private key: ./box_ssh_key"
-    echo "   Public key:  ./box_ssh_key.pub"
+    echo "   Private key: $BOX_DIR/box_ssh_key"
+    echo "   Public key:  $BOX_DIR/box_ssh_key.pub"
     echo ""
     echo "Next steps:"
-    echo "  1. Update config/prod.tfvars with your configuration"
-    echo "  2. Run: ./box.sh up"
+    echo "  1. Update $BOX_DIR/config/prod.tfvars with your configuration"
+    echo "  2. Run: $PROG up"
     ;;
   
   up)
@@ -84,8 +118,8 @@ case "$COMMAND" in
       mkdir -p config
       if [ -f "./terraform.tfvars.example" ]; then
         cp terraform.tfvars.example config/prod.tfvars
-        echo "  ✅ Created config/prod.tfvars"
-        echo "  ⚠️  Update config/prod.tfvars with your settings!"
+        echo "  ✅ Created $BOX_DIR/config/prod.tfvars"
+        echo "  ⚠️  Update $BOX_DIR/config/prod.tfvars with your settings!"
         echo ""
         echo "Press Enter to continue or Ctrl+C to edit config first..."
         read
@@ -195,7 +229,7 @@ case "$COMMAND" in
       if echo "$SSH_OUTPUT" | grep -qi "Permission denied"; then
         echo ""
         echo "❌ SSH authentication failed - check SSH keys"
-        echo "   Expected key: ./box_ssh_key.pub"
+        echo "   Expected key: $BOX_DIR/box_ssh_key.pub"
         echo "   Username: $USERNAME"
         echo ""
         echo "Public key content:"
@@ -228,7 +262,7 @@ case "$COMMAND" in
       echo "   gcloud compute firewall-rules list --filter='name~ssh'"
       echo ""
       echo "3. Try manual SSH:"
-      echo "   ssh -i ./box_ssh_key $USERNAME@$VM_IP"
+      echo "   ssh -i $BOX_DIR/box_ssh_key $USERNAME@$VM_IP"
       echo ""
       echo "4. Check VM serial console output:"
       echo "   gcloud compute instances get-serial-port-output $(terraform output -raw resource_name) --zone=$(terraform output -raw vm_zone)"
@@ -264,7 +298,7 @@ case "$COMMAND" in
         echo "🎉 Box provisioning complete!"
         echo ""
         echo "🔗 Connect to your box:"
-        echo "   ./box.sh ssh"
+        echo "   $PROG ssh"
         echo ""
         echo "📝 Verify installation:"
         echo "   nvidia-smi"
@@ -273,7 +307,7 @@ case "$COMMAND" in
         echo "⚠️  Startup script finished but completion marker not found"
         echo ""
         echo "Check if installation actually completed:"
-        echo "   ./box.sh ssh"
+        echo "   $PROG ssh"
         echo "   cat /var/log/setup-completed"
         echo "   cat /var/log/install-completed"
         echo "   cat /var/log/provisioning-completed"
@@ -283,7 +317,7 @@ case "$COMMAND" in
       echo "❌ Installation failed!"
       echo ""
       echo "Check logs on the VM:"
-      echo "   ./box.sh ssh"
+      echo "   $PROG ssh"
       echo "   cat /var/log/setup-script.log"
       echo "   cat /var/log/install-script.log"
       echo ""
@@ -308,7 +342,7 @@ case "$COMMAND" in
     SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 -o LogLevel=ERROR"
     
     if [ -z "$VM_IP" ] || [ "$VM_IP" == "null" ]; then
-      echo "❌ No VM found. Run './box.sh up' first."
+      echo "❌ No VM found. Run '$PROG up' first."
       exit 1
     fi
     
@@ -341,7 +375,7 @@ case "$COMMAND" in
       echo ""
       echo "❌ Setup failed!"
       echo ""
-      echo "Check logs: ./box.sh ssh"
+      echo "Check logs: $PROG ssh"
       echo "  cat /var/log/setup-script.log"
       echo "  cat /var/log/install-script.log"
       exit 1
@@ -395,7 +429,7 @@ case "$COMMAND" in
     
     if [ ! -f "$SSH_KEY" ]; then
       echo "❌ SSH key not found at $SSH_KEY"
-      echo "Generate it with: ./box.sh init"
+      echo "Generate it with: $PROG init"
       exit 1
     fi
     
@@ -403,7 +437,28 @@ case "$COMMAND" in
     ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USERNAME@$VM_IP"
     ;;
   
-  help|"")
+  config)
+    if [ ! -f "./config/prod.tfvars" ]; then
+      mkdir -p config
+      cp terraform.tfvars.example config/prod.tfvars
+    fi
+    "${EDITOR:-vi}" "$BOX_DIR/config/prod.tfvars"
+    ;;
+
+  version|--version|-v)
+    box_version
+    ;;
+
+  update)
+    if [ -d "$BOX_DIR/.git" ]; then
+      echo "This is a git checkout; update it with: git -C \"$BOX_DIR\" pull"
+      exit 1
+    fi
+    echo "⬆️  Updating gpushed (currently $(box_version))..."
+    curl -fsSL "https://github.com/$GPUSHED_REPO/releases/latest/download/install.sh" | GPUSHED_HOME="$BOX_DIR" bash
+    ;;
+
+  help|-h|--help|"")
     show_usage
     ;;
   
