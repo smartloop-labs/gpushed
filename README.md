@@ -5,9 +5,15 @@ waitlist and no day-long queue for capacity. You get a clean Ubuntu 22.04 VM wit
 the NVIDIA driver and CUDA installed, an SSH key, and a static IP. Tear it
 down when you're done so you only pay for the hours you use.
 
+Install:
+
 ```bash
 curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
+```
 
+Then:
+
+```bash
 gpushed up       # create the VM and install the NVIDIA driver + CUDA
 gpushed ssh      # connect
 nvidia-smi       # on the box
