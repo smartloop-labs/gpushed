@@ -2,7 +2,9 @@
 #
 # Install gpushed from its GitHub release:
 #
-#   curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
+#   curl -fsSL gpushed.smartloop.ai | bash
+#
+# (same script as https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh)
 #
 # Environment:
 #   GPUSHED_VERSION   Release tag to install, e.g. v0.1.0 (default: latest)

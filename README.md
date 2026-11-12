@@ -8,7 +8,7 @@ down when you're done so you only pay for the hours you use.
 Install:
 
 ```bash
-curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
+curl -fsSL gpushed.smartloop.ai | bash
 ```
 
 Then:
@@ -43,10 +43,15 @@ gpushed down     # destroy everything
 ## Install
 
 ```bash
-curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
+curl -fsSL gpushed.smartloop.ai | bash
 ```
 
-This downloads the latest release into `~/.gpushed`, verifies its SHA-256
+`gpushed.smartloop.ai` serves the same `install.sh` that's attached to each
+[release](https://github.com/smartloop-labs/gpushed/releases); you can also run
+it straight from there:
+`curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash`.
+
+The installer downloads the latest release into `~/.gpushed`, verifies its SHA-256
 checksum and links the `gpushed` command into `~/.local/bin`. Your SSH key,
 config and Terraform state also live in `~/.gpushed`, and survive upgrades.
 
