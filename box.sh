@@ -31,6 +31,16 @@ box_version() {
   fi
 }
 
+# Download providers (if missing or the lock file changed). Quiet unless it fails.
+tf_init() {
+  local out
+  if ! out=$(terraform init -input=false 2>&1); then
+    echo "$out"
+    echo "❌ terraform init failed"
+    exit 1
+  fi
+}
+
 COMMAND="${1:-}"
 
 show_usage() {
@@ -141,6 +151,9 @@ case "$COMMAND" in
     echo "  ✅ Setup script found"
     echo ""
     
+    # Init must come first: workspace commands need the providers installed.
+    tf_init
+
     # Create workspace based on SSH key hash
     echo "🔑 Setting up Terraform workspace..."
     SSH_KEY_HASH=$(ssh-keygen -lf ./box_ssh_key.pub | awk '{print $2}' | cut -d':' -f2 | cut -c1-8)
@@ -161,14 +174,6 @@ case "$COMMAND" in
     echo "   1. Create VM infrastructure"
     echo "   2. Run scripts/setup.sh (NVIDIA driver + CUDA)"
     echo ""
-    
-    # Only init if not already initialized
-    if [ ! -d ".terraform" ] || [ ! -f ".terraform/terraform.tfstate" ]; then
-      echo "Initializing Terraform..."
-      terraform init
-    else
-      echo "✓ Terraform already initialized, skipping init"
-    fi
     
     terraform apply -var-file="config/prod.tfvars" -auto-approve
     
@@ -383,6 +388,8 @@ case "$COMMAND" in
     ;;
   
   down)
+    tf_init
+
     # Get workspace from SSH key
     if [ -f "./box_ssh_key.pub" ]; then
       SSH_KEY_HASH=$(ssh-keygen -lf ./box_ssh_key.pub | awk '{print $2}' | cut -d':' -f2 | cut -c1-8)
@@ -400,6 +407,8 @@ case "$COMMAND" in
     ;;
   
   status)
+    tf_init
+
     # Get workspace from SSH key
     if [ -f "./box_ssh_key.pub" ]; then
       SSH_KEY_HASH=$(ssh-keygen -lf ./box_ssh_key.pub | awk '{print $2}' | cut -d':' -f2 | cut -c1-8)
