@@ -94,6 +94,70 @@ require_project() {
   echo ""
 }
 
+# Read a simple `name = value` setting from config/prod.tfvars.
+tfvar() {
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\{0,1\}\([^\"#]*\)\"\{0,1\}.*/\1/p" config/prod.tfvars \
+    | head -1 | sed 's/[[:space:]]*$//'
+}
+
+# Zones to try, configured zone first, then the region's other zones that
+# offer the machine type (and the GPU, when one is attached separately).
+# Needs gcloud; without it, only the configured zone is tried.
+candidate_zones() {
+  local zone region project machine gpu_type gpu_count others
+  zone=$(tfvar zone); region=$(tfvar region); project=$(tfvar project_id)
+  machine=$(tfvar machine_type); gpu_type=$(tfvar gpu_type); gpu_count=$(tfvar gpu_count)
+  echo "$zone"
+  others=$(gcloud compute machine-types list --project="$project" \
+    --filter="name=$machine AND zone~^$region-" --format="value(zone.basename())" 2>/dev/null) || return 0
+  if [ "${gpu_count:-0}" != "0" ]; then
+    local gpu_zones
+    gpu_zones=$(gcloud compute accelerator-types list --project="$project" \
+      --filter="name=$gpu_type AND zone~^$region-" --format="value(zone.basename())" 2>/dev/null) || return 0
+    others=$(comm -12 <(echo "$others" | sort -u) <(echo "$gpu_zones" | sort -u))
+  fi
+  echo "$others" | sort -u | grep -v "^$zone\$" | grep -v '^$' || true
+}
+
+# terraform apply, moving to the next zone when GCP is out of capacity in
+# the current one. The zone that works is saved to the config.
+apply_with_zone_fallback() {
+  local zones zone status log configured
+  configured=$(tfvar zone)
+  zones=$(candidate_zones)
+  log=$(mktemp)
+  for zone in $zones; do
+    if [ "$zone" != "$configured" ]; then
+      echo ""
+      echo "🔁 Trying zone $zone..."
+      echo ""
+    fi
+    terraform apply -var-file="config/prod.tfvars" -var="zone=$zone" -auto-approve 2>&1 | tee "$log"
+    status=${PIPESTATUS[0]}
+    if [ "$status" -eq 0 ]; then
+      rm -f "$log"
+      if [ "$zone" != "$configured" ]; then
+        sed -i.bak "s/^[[:space:]]*zone[[:space:]]*=.*/zone               = \"$zone\"/" config/prod.tfvars
+        rm -f config/prod.tfvars.bak
+        echo ""
+        echo "📍 Zone $configured was out of capacity; saved zone = \"$zone\" to $BOX_DIR/config/prod.tfvars"
+      fi
+      return 0
+    fi
+    if ! grep -qE 'STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|does not have enough resources available' "$log"; then
+      rm -f "$log"
+      return 1   # not a capacity problem; another zone won't help
+    fi
+    echo ""
+    echo "⚠️  Zone $zone has no capacity for this machine right now."
+  done
+  rm -f "$log"
+  echo ""
+  echo "❌ No zone in $(tfvar region) has capacity right now (tried: $(echo $zones))."
+  echo "   Try again later, another region, or a different GPU: $PROG config"
+  return 1
+}
+
 COMMAND="${1:-}"
 
 show_usage() {
@@ -223,9 +287,7 @@ case "$COMMAND" in
     echo "   2. Run scripts/setup.sh (NVIDIA driver + CUDA)"
     echo ""
     
-    terraform apply -var-file="config/prod.tfvars" -auto-approve
-    
-    if [ $? -ne 0 ]; then
+    if ! apply_with_zone_fallback; then
       echo ""
       echo "❌ VM creation failed. Check the error above."
       exit 1

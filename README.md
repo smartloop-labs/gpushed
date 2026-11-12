@@ -86,6 +86,10 @@ nvidia-smi
 
 If `nvidia-smi` can't talk to the driver right after setup, `sudo reboot` once.
 
+**Out of capacity?** GPUs often sell out in a zone. When GCP reports a
+stockout, `up` retries in the region's other zones that offer your machine
+type (and GPU), and saves the zone that works to your config.
+
 ## Commands
 
 | Command | What it does |
