@@ -2,7 +2,7 @@
 
 set -e
 
-GPUSHED_REPO="smartlooplabs/gpushed"
+GPUSHED_REPO="smartloop-labs/gpushed"
 
 # Find the directory holding the Terraform files, following symlinks
 # (e.g. ~/.local/bin/gpushed -> ~/.gpushed/box.sh). The SSH key, config and

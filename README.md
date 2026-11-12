@@ -6,7 +6,7 @@ the NVIDIA driver and CUDA installed, an SSH key, and a static IP. Tear it
 down when you're done so you only pay for the hours you use.
 
 ```bash
-curl -fsSL https://github.com/smartlooplabs/gpushed/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
 
 gpushed up       # create the VM and install the NVIDIA driver + CUDA
 gpushed ssh      # connect
@@ -37,7 +37,7 @@ gpushed down     # destroy everything
 ## Install
 
 ```bash
-curl -fsSL https://github.com/smartlooplabs/gpushed/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
 ```
 
 This downloads the latest release into `~/.gpushed`, verifies its SHA-256
@@ -53,7 +53,7 @@ config and Terraform state also live in `~/.gpushed`, and survive upgrades.
 Upgrade with `gpushed update`. To uninstall, run `gpushed down` first, then
 `rm -rf ~/.gpushed ~/.local/bin/gpushed`.
 
-Prefer a checkout? `git clone https://github.com/smartlooplabs/gpushed.git`
+Prefer a checkout? `git clone https://github.com/smartloop-labs/gpushed.git`
 and use `./box.sh` in place of `gpushed`; everything works the same.
 
 ## Quick start

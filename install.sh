@@ -2,7 +2,7 @@
 #
 # Install gpushed from its GitHub release:
 #
-#   curl -fsSL https://github.com/smartlooplabs/gpushed/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash
 #
 # Environment:
 #   GPUSHED_VERSION   Release tag to install, e.g. v0.1.0 (default: latest)
@@ -16,7 +16,7 @@ set -euo pipefail
 
 # Everything is inside main so a partially downloaded script never runs.
 main() {
-  local repo="smartlooplabs/gpushed"
+  local repo="smartloop-labs/gpushed"
   local version="${GPUSHED_VERSION:-latest}"
   local home="${GPUSHED_HOME:-$HOME/.gpushed}"
   local bin_dir="${GPUSHED_BIN_DIR:-$HOME/.local/bin}"
