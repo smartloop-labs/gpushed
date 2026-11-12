@@ -21,17 +21,22 @@ main() {
   local home="${GPUSHED_HOME:-$HOME/.gpushed}"
   local bin_dir="${GPUSHED_BIN_DIR:-$HOME/.local/bin}"
   local asset="gpushed.tar.gz"
-  local base
-
-  if [ "$version" = "latest" ]; then
-    base="https://github.com/$repo/releases/latest/download"
-  else
-    base="https://github.com/$repo/releases/download/$version"
-  fi
-
   for cmd in curl tar; do
     command -v "$cmd" >/dev/null 2>&1 || fail "$cmd is required"
   done
+
+  # Resolve "latest" to a tag once, so the package and its checksum come
+  # from the same release even while GitHub's "latest" redirect is updating.
+  if [ "$version" = "latest" ]; then
+    version="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")" \
+      || fail "could not look up the latest release"
+    version="${version##*/}"
+    case "$version" in
+      v*) ;;
+      *) fail "could not determine the latest release" ;;
+    esac
+  fi
+  local base="https://github.com/$repo/releases/download/$version"
 
   GPUSHED_TMP="$(mktemp -d)"
   trap 'rm -rf "$GPUSHED_TMP"' EXIT

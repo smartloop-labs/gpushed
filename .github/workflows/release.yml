@@ -27,8 +27,9 @@ jobs:
         run: |
           python3 -m http.server 8000 --directory dist &
           sleep 1
-          sed 's|base="https://github.com/$repo/releases/latest/download"|base="http://localhost:8000"|' install.sh > /tmp/install-local.sh
-          GPUSHED_HOME=/tmp/gp GPUSHED_BIN_DIR=/tmp/gpbin bash /tmp/install-local.sh
+          sed 's|local base="https://github.com/$repo/releases/download/$version"|local base="http://localhost:8000"|' install.sh > /tmp/install-local.sh
+          grep -q 'base="http://localhost:8000"' /tmp/install-local.sh
+          GPUSHED_VERSION="${GITHUB_REF_NAME}" GPUSHED_HOME=/tmp/gp GPUSHED_BIN_DIR=/tmp/gpbin bash /tmp/install-local.sh
           test "$(/tmp/gpbin/gpushed version)" = "${GITHUB_REF_NAME}"
 
       - name: Create release
