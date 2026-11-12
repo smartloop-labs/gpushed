@@ -41,6 +41,59 @@ tf_init() {
   fi
 }
 
+# Create config/prod.tfvars from the example.
+make_config() {
+  mkdir -p config
+  cp terraform.tfvars.example config/prod.tfvars
+}
+
+# The GPU box is billed to project_id, so it must never be the example's
+# placeholder. When it is, ask for it, offering gcloud's current project as
+# the default; without a terminal, use gcloud's project or stop.
+require_project() {
+  local current
+  current=$(sed -n 's/^[[:space:]]*project_id[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' config/prod.tfvars)
+  if [ -n "$current" ] && [ "$current" != "your-gcp-project-id" ]; then
+    return 0
+  fi
+
+  local gcloud_project project=""
+  gcloud_project=$(gcloud config get-value project 2>/dev/null || true)
+
+  if [ ! -t 0 ]; then
+    if [ -z "$gcloud_project" ]; then
+      echo "❌ project_id is not set in $BOX_DIR/config/prod.tfvars and gcloud has no current project."
+      echo "   Set one with: $PROG config   (or: gcloud config set project <id>)"
+      exit 1
+    fi
+    project="$gcloud_project"
+    echo "🏷️  Using gcloud's current project: $project"
+  else
+    echo "🏷️  Which GCP project should the GPU box be created (and billed) in?"
+    while true; do
+      if [ -n "$gcloud_project" ]; then
+        read -r -p "   GCP project ID [$gcloud_project]: " project
+        project="${project:-$gcloud_project}"
+      else
+        read -r -p "   GCP project ID: " project
+      fi
+      if [[ $project =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
+        break
+      fi
+      echo "   ❌ Not a valid project ID (6-30 chars: lowercase letters, digits, hyphens)"
+    done
+  fi
+
+  if grep -q '^[[:space:]]*project_id[[:space:]]*=' config/prod.tfvars; then
+    sed -i.bak "s/^[[:space:]]*project_id[[:space:]]*=.*/project_id         = \"$project\"/" config/prod.tfvars
+    rm -f config/prod.tfvars.bak
+  else
+    printf 'project_id         = "%s"\n' "$project" >> config/prod.tfvars
+  fi
+  echo "   ✅ Saved to $BOX_DIR/config/prod.tfvars"
+  echo ""
+}
+
 COMMAND="${1:-}"
 
 show_usage() {
@@ -74,42 +127,38 @@ EOF
 case "$COMMAND" in
   init)
     echo "🔑 Initializing project..."
-    
-    # Check if SSH key already exists
+
+    # SSH key: keep an existing one unless asked to regenerate
+    GENERATE_KEY=1
     if [ -f "./box_ssh_key" ]; then
       echo "⚠️  SSH key already exists at $BOX_DIR/box_ssh_key"
       read -p "Do you want to regenerate it? (y/N): " -n 1 -r
       echo
-      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        rm -f ./box_ssh_key ./box_ssh_key.pub
+      else
         echo "Keeping existing SSH key"
-        exit 0
+        GENERATE_KEY=0
       fi
-      rm -f ./box_ssh_key ./box_ssh_key.pub
     fi
-    
-    # Generate SSH key
-    echo "Generating SSH key pair..."
-    ssh-keygen -t rsa -b 4096 -f ./box_ssh_key -N "" -C "gpushed"
-    
-    # Check if config folder exists, if not create example
-    if [ ! -d "./config" ]; then
-      mkdir -p config
+    if [ "$GENERATE_KEY" = 1 ]; then
+      echo "Generating SSH key pair..."
+      ssh-keygen -t rsa -b 4096 -f ./box_ssh_key -N "" -C "gpushed"
     fi
-    
-    # Create prod.tfvars from example if it doesn't exist
-    if [ ! -f "./config/prod.tfvars" ] && [ -f "./terraform.tfvars.example" ]; then
-      echo "Creating $BOX_DIR/config/prod.tfvars from example..."
-      cp terraform.tfvars.example config/prod.tfvars
-      echo "⚠️  Remember to update $BOX_DIR/config/prod.tfvars with your settings!"
-    fi
-    
-    echo ""
-    echo "✅ SSH key generated successfully!"
     echo "   Private key: $BOX_DIR/box_ssh_key"
     echo "   Public key:  $BOX_DIR/box_ssh_key.pub"
     echo ""
+
+    if [ ! -f "./config/prod.tfvars" ]; then
+      echo "Creating $BOX_DIR/config/prod.tfvars from example..."
+      make_config
+    fi
+    require_project
+
+    echo "✅ Initialized."
+    echo ""
     echo "Next steps:"
-    echo "  1. Update $BOX_DIR/config/prod.tfvars with your configuration"
+    echo "  1. Optionally review region, zone and GPU: $PROG config"
     echo "  2. Run: $PROG up"
     ;;
   
@@ -127,12 +176,9 @@ case "$COMMAND" in
       echo "📝 Config not found, creating from template..."
       mkdir -p config
       if [ -f "./terraform.tfvars.example" ]; then
-        cp terraform.tfvars.example config/prod.tfvars
+        make_config
         echo "  ✅ Created $BOX_DIR/config/prod.tfvars"
-        echo "  ⚠️  Update $BOX_DIR/config/prod.tfvars with your settings!"
         echo ""
-        echo "Press Enter to continue or Ctrl+C to edit config first..."
-        read
       else
         echo "❌ terraform.tfvars.example not found"
         exit 1
@@ -151,6 +197,8 @@ case "$COMMAND" in
     echo "  ✅ Setup script found"
     echo ""
     
+    require_project
+
     # Init must come first: workspace commands need the providers installed.
     tf_init
 
@@ -449,7 +497,7 @@ case "$COMMAND" in
   config)
     if [ ! -f "./config/prod.tfvars" ]; then
       mkdir -p config
-      cp terraform.tfvars.example config/prod.tfvars
+      make_config
     fi
     "${EDITOR:-vi}" "$BOX_DIR/config/prod.tfvars"
     ;;

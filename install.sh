@@ -105,8 +105,8 @@ main() {
 
   say ""
   say "Next steps:"
-  say "   gpushed init      # create an SSH key and config"
-  say "   gpushed config    # set project_id (and region/zone)"
+  say "   gpushed init      # create an SSH key and set your GCP project"
+  say "   gpushed config    # optional: region, zone, GPU type"
   say "   gpushed up        # create the GPU box"
 }
 

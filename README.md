@@ -65,10 +65,15 @@ and use `./box.sh` in place of `gpushed`; everything works the same.
 ## Quick start
 
 ```bash
-gpushed init      # generates an SSH key and config/prod.tfvars
-gpushed config    # set project_id (and region/zone if you like)
+gpushed init      # generates an SSH key and asks for your GCP project
+gpushed config    # optional: change region, zone or GPU type
 gpushed up
 ```
+
+The box is billed to `project_id`, so it must be set before anything is
+created. `init` and `up` ask for it, defaulting to gcloud's current project
+(press Enter to accept). Run without a terminal, they use gcloud's current
+project, or stop if there is none.
 
 `up` creates the infrastructure, waits for SSH, then runs the setup script
 and streams its output. First boot takes about 10–15 minutes, mostly
