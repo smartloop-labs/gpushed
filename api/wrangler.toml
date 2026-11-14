@@ -11,7 +11,7 @@ routes = [{ pattern = "api.smartloop.ai/v1/gpushed/*", zone_name = "smartloop.ai
 [[d1_databases]]
 binding = "DB"
 database_name = "gpushed"
-database_id = "REPLACE_WITH_D1_DATABASE_ID" # wrangler d1 create gpushed
+database_id = "2c942c01-b93a-4001-a1fc-11fdfbc61840"
 migrations_dir = "migrations"
 
 # Meter usage and enforce balances every 5 minutes.
