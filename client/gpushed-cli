@@ -268,7 +268,7 @@ Account
                            (--email: with an emailed code instead)
   logout                   Sign out on this Mac
   balance                  Show your balance (alias: me)
-  topup [usd]              Add credit with Stripe (minimum \$10)
+  topup [usd]              Add credit with Stripe: \$10, \$25, \$50, \$100 or any amount from \$10
   history                  Recent charges and top-ups
 
 Box
@@ -310,7 +310,22 @@ case "$cmd" in
     ;;
 
   topup)
-    amount="${1:-10}"
+    amount="${1:-}"
+    if [ -z "$amount" ]; then
+      if [ -t 0 ]; then
+        # The same amounts as the web app; $100 covers a long run on the big GPUs.
+        say "How much credit? \$10 runs an L4 about 11 hours; \$100 runs an A100 about 22."
+        PS3="Amount (1-5): "
+        select choice in '$10' '$25' '$50' '$100' 'Other'; do
+          case $choice in
+            Other) read -r -p "Amount in USD: " amount; break ;;
+            ?*) amount=${choice#\$}; break ;;
+          esac
+        done
+      else
+        amount=10
+      fi
+    fi
     [[ $amount =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || die "Usage: gpushed topup [amount in USD, e.g. 25]"
     api POST /topup "{\"amount_usd\": $amount}"; url=$(jq -r .url <<<"$API_BODY")
     say "💳 Opening Stripe checkout for \$$amount:"

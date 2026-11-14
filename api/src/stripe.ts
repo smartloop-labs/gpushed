@@ -41,7 +41,11 @@ export async function createCheckoutSession(
     cancel_url: opts.cancelUrl,
     client_reference_id: opts.userId,
     customer_email: opts.email,
+    // app=gpushed: this Stripe account is shared with other smartloop products,
+    // so mark which one a checkout and its payment belong to.
+    "metadata[app]": "gpushed",
     "metadata[user_id]": opts.userId,
+    "payment_intent_data[metadata][app]": "gpushed",
     "payment_intent_data[metadata][user_id]": opts.userId,
     // Promotion codes give free credit: the webhook credits the amount before
     // discounts (see topupCents), so a 100%-off code is a free top-up.
