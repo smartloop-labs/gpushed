@@ -1,0 +1,410 @@
+#!/bin/bash
+#
+# gpushed client. Runs inside the gpushed-cli container (started by the
+# `gpushed` command on the Mac); talks to the gpushed API. Accounts are
+# smartloop accounts: `login` signs in to smartloop with an emailed code.
+
+set -euo pipefail
+
+API="${GPUSHED_API:-https://gpushed-api.smartloop.ai}"
+SMARTLOOP_API="${GPUSHED_SMARTLOOP_API:-https://api.smartloop.ai}"
+SIGNUP_URL="${GPUSHED_SIGNUP_URL:-https://app.smartloop.ai/signup}"
+STATE="${GPUSHED_STATE:-/state}"
+TOKEN_FILE="$STATE/token"
+KEY="$STATE/box_ssh_key"
+VERSION="$(cat /etc/gpushed-version 2>/dev/null || echo dev)"
+SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30)
+
+say() { printf '%s\n' "$*"; }
+die() { printf '❌ %s\n' "$*" >&2; exit 1; }
+
+# Ask the Mac to open a URL in the browser (the `gpushed` wrapper watches for
+# this file); also print it in case that isn't possible.
+open_url() {
+  printf '%s\n' "$1" > "$STATE/.open-url"
+  say "   $1"
+}
+
+token() {
+  [ -s "$TOKEN_FILE" ] || die "Not signed in. Run: gpushed login"
+  cat "$TOKEN_FILE"
+}
+
+# api METHOD PATH [JSON]: sets API_STATUS and API_BODY. Exits with the API's
+# error message on a 4xx/5xx unless API_ALLOW lists that status. (Call it
+# directly, not in $(...), so the globals reach the caller.)
+api() {
+  local method=$1 path=$2 data=${3:-} out auth=()
+  [ "${NO_AUTH:-0}" = 1 ] || auth=(-H "authorization: Bearer $(token)")
+  out=$(mktemp)
+  API_STATUS=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" \
+    -H "content-type: application/json" -H "user-agent: gpushed-cli/$VERSION" "${auth[@]}" \
+    ${data:+--data "$data"}) || { rm -f "$out"; die "Could not reach $API"; }
+  API_BODY=$(cat "$out"); rm -f "$out"
+  if [ "$API_STATUS" -ge 400 ] && [[ " ${API_ALLOW:-} " != *" $API_STATUS "* ]]; then
+    local msg; msg=$(jq -r '.error // empty' <<<"$API_BODY" 2>/dev/null || true)
+    die "${msg:-request failed (HTTP $API_STATUS)}"
+  fi
+}
+
+# smartloop METHOD PATH JSON: call the smartloop API (sign-in only). Sets
+# SL_STATUS, SL_BODY, and SL_CODE/SL_MSG from its {"detail": {code, message}} errors.
+smartloop() {
+  local out
+  out=$(mktemp)
+  SL_STATUS=$(curl -sS -o "$out" -w '%{http_code}' -X "$1" "$SMARTLOOP_API$2" \
+    -H "content-type: application/json" -H "user-agent: gpushed-cli/$VERSION" --data "$3") \
+    || { rm -f "$out"; die "Could not reach $SMARTLOOP_API"; }
+  SL_BODY=$(cat "$out"); rm -f "$out"
+  SL_CODE=$(jq -r '.detail.code? // empty' <<<"$SL_BODY" 2>/dev/null || true)
+  SL_MSG=$(jq -r 'if (.detail|type) == "object" then .detail.message elif (.detail|type) == "string" then .detail else empty end' <<<"$SL_BODY" 2>/dev/null || true)
+}
+
+ensure_key() {
+  if [ ! -f "$KEY" ]; then
+    ssh-keygen -q -t ed25519 -N "" -C "gpushed" -f "$KEY"
+    say "🔑 Created an SSH key for your box: ~/.gpushed/state/box_ssh_key"
+  fi
+}
+
+box_json() { API_ALLOW="404" api GET /box; }  # -> API_STATUS, API_BODY
+
+require_running_box() {
+  local b; box_json; b=$API_BODY
+  [ "$API_STATUS" != 404 ] || die "You have no box. Create one with: gpushed up"
+  BOX_STATUS=$(jq -r .box.status <<<"$b")
+  BOX_IP=$(jq -r '.box.ip // empty' <<<"$b")
+  BOX_USER=$(jq -r .box.ssh_user <<<"$b")
+  [ "$BOX_STATUS" = running ] && [ -n "$BOX_IP" ] || die "Your box is $BOX_STATUS, not running."
+}
+
+# What a box status means while we wait on it.
+describe_status() {
+  case "$1" in
+    pending) echo "creating your VM on Google Cloud (usually 1-3 minutes)" ;;
+    starting) echo "starting your VM" ;;
+    stopping) echo "stopping your VM" ;;
+    destroying) echo "deleting your VM and its disk" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# The line printed once a status is over.
+describe_done() {
+  case "$1" in
+    pending) echo "VM created" ;;
+    starting) echo "VM started" ;;
+    stopping) echo "VM stopped" ;;
+    destroying) echo "VM deleted" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Poll the box until it reaches one of the given statuses (or failed). On a
+# terminal, keep one live line with a spinner and the time spent so far.
+wait_for() {
+  local want=" $* " last="" b status started=$SECONDS since=$SECONDS polled=-5 i=0 live=0
+  local spin=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  [ -t 1 ] && live=1
+  while true; do
+    if [ $((SECONDS - polled)) -ge 5 ]; then
+      polled=$SECONDS
+      box_json; b=$API_BODY
+      if [ "$API_STATUS" = 404 ]; then status=destroyed; else status=$(jq -r .box.status <<<"$b"); fi
+      if [ "$status" != "$last" ]; then
+        if [ $live = 1 ] && [ -n "$last" ]; then
+          printf '\r\033[K   ✓ %s in %s\n' "$(describe_done "$last")" "$(elapsed $((SECONDS - since)))"
+        fi
+        [ $live = 1 ] || say "   … $(describe_status "$status")"
+        last=$status since=$SECONDS
+      fi
+      if [[ $want == *" $status "* ]]; then
+        [ $live = 1 ] && printf '\r\033[K'
+        return 0
+      fi
+      if [ "$status" = failed ]; then
+        [ $live = 1 ] && printf '\r\033[K'
+        die "$(jq -r '.box.error // "provisioning failed"' <<<"$b")"
+      fi
+      [ $((SECONDS - started)) -lt 1800 ] || { [ $live = 1 ] && echo; die "Timed out waiting; check later with: gpushed status"; }
+    fi
+    if [ $live = 1 ]; then
+      printf '\r\033[K   %s %s · %s' "${spin[i++ % 10]}" "$(describe_status "$status")" "$(elapsed $((SECONDS - since)))"
+    fi
+    sleep 1
+  done
+}
+
+# 75 -> "1m 15s"
+elapsed() {
+  local s=$1
+  if [ "$s" -ge 60 ]; then printf '%dm %02ds' $((s / 60)) $((s % 60)); else printf '%ds' "$s"; fi
+}
+
+wait_for_ssh() {
+  for _ in $(seq 1 60); do
+    ssh "${SSH_OPTS[@]}" -o ConnectTimeout=5 "$BOX_USER@$BOX_IP" true 2>/dev/null && return 0
+    sleep 5
+  done
+  die "The box is running but SSH isn't answering yet. Try: gpushed ssh"
+}
+
+# Stream the NVIDIA/CUDA setup log until it finishes (it runs on first boot).
+follow_setup() {
+  if ssh "${SSH_OPTS[@]}" "$BOX_USER@$BOX_IP" test -f /var/log/provisioning-completed; then
+    return 0
+  fi
+  say ""
+  say "📦 Installing the NVIDIA driver and CUDA (10-15 minutes on first boot). Ctrl-C stops watching; setup carries on."
+  say "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  ssh "${SSH_OPTS[@]}" "$BOX_USER@$BOX_IP" \
+    'sudo bash -c "while [ ! -f /var/log/provisioning-completed ]; do sleep 5; done" & w=$!; sudo tail -n +1 -F --pid=$w /var/log/setup-script.log 2>/dev/null' || true
+  say "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+show_account() {
+  local me; api GET /me; me=$API_BODY
+  say "👤 $(jq -r .email <<<"$me")"
+  say "💰 Balance: \$$(jq -r .balance_usd <<<"$me")"
+  if [ "$(jq -r .balance_micros <<<"$me")" -le 0 ]; then
+    say "No credit yet. Add some (minimum \$$(jq -r .min_topup_usd <<<"$me")) with: gpushed topup"
+  elif [ "$(jq -r .low_balance <<<"$me")" = true ]; then
+    say "⚠️  Your balance is low. Boxes stop when it runs out. Top up with: gpushed topup"
+  fi
+}
+
+# Save the API token from a sign-in response and say hello.
+signed_in() {
+  umask 077
+  jq -r .token <<<"$1" > "$TOKEN_FILE"
+  say "✅ Signed in as $(jq -r .account.email <<<"$1")."
+  say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$1")"
+  if [ "$(jq -r .account.balance_micros <<<"$1")" -le 0 ]; then
+    say ""
+    say "Add credit to start a box (minimum \$$(jq -r .account.min_topup_usd <<<"$1")): gpushed topup"
+  else
+    say "Next: gpushed up"
+  fi
+}
+
+# Sign in with an emailed code (for machines without a browser).
+email_login() {
+  # Sign in with your smartloop account: smartloop emails a code, and the
+  # smartloop session is traded for a gpushed token kept in ~/.gpushed/state.
+  [ -t 0 ] || die "gpushed login --email needs a terminal (it asks for the code smartloop emails you)."
+  email="${1:-}"
+  [ -n "$email" ] || read -r -p "smartloop account email: " email
+  email=$(tr '[:upper:]' '[:lower:]' <<<"$email" | tr -d '[:space:]')
+  [[ $email == ?*@?*.?* ]] || die "That doesn't look like an email address."
+  while true; do
+    smartloop POST /v1/auth/otp/request "$(jq -nc --arg e "$email" '{email:$e}')"
+    [ "$SL_CODE" = OTP_NO_ACCOUNT ] || break
+    say "🆕 There's no smartloop account for $email yet. gpushed uses your smartloop account;"
+    say "   create one (it's free) in your browser:"
+    open_url "$SIGNUP_URL"
+    read -r -p "   Press Enter once you've signed up with $email (or Ctrl-C to stop) " _
+  done
+  case "$SL_STATUS" in
+    200) ;;
+    429) die "${SL_MSG:-A code was just sent. Wait a moment and try again.}" ;;
+    *) die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}" ;;
+  esac
+  say "📧 smartloop sent a sign-in code to $email."
+  for attempt in 1 2 3; do
+    read -r -p "   Code: " code
+    code=$(tr -d '[:space:]' <<<"$code")
+    smartloop POST /v1/auth/otp/verify "$(jq -nc --arg e "$email" --arg c "$code" '{email:$e, code:$c}')"
+    [ "$SL_STATUS" = 200 ] && break
+    case "$SL_CODE" in
+      OTP_INVALID) [ "$attempt" -lt 3 ] && { say "   ${SL_MSG:-That code is not valid.} Try again."; continue; } ;;
+    esac
+    die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}. Run gpushed login again."
+  done
+  [ "$SL_STATUS" = 200 ] || die "Sign-in failed. Run gpushed login again."
+  access=$(jq -r '.access_token // empty' <<<"$SL_BODY")
+  [ -n "$access" ] || die "Unexpected response from smartloop sign-in."
+  NO_AUTH=1 api POST /auth/smartloop "$(jq -nc --arg t "$access" '{access_token:$t}')"
+  signed_in "$API_BODY"
+}
+
+# Sign in in the browser: the smartloop web app asks you to approve this
+# terminal's code, and we poll until you do.
+browser_login() {
+  local res device code url interval expires started
+  NO_AUTH=1 api POST /auth/cli/start '{}'; res=$API_BODY
+  device=$(jq -r .device_code <<<"$res"); code=$(jq -r .user_code <<<"$res"); url=$(jq -r .url <<<"$res")
+  interval=$(jq -r '.interval // 3' <<<"$res"); expires=$(jq -r '.expires_in // 600' <<<"$res")
+  say "🌐 Opening your browser to sign in with your smartloop account."
+  say "   Check that it shows this code, then approve: $code"
+  open_url "$url"
+  say "   Waiting for you to approve… (Ctrl-C to stop; no browser here? gpushed login --email)"
+  started=$SECONDS
+  while [ $((SECONDS - started)) -lt "$expires" ]; do
+    sleep "$interval"
+    NO_AUTH=1 API_ALLOW="202" api POST /auth/cli/poll "$(jq -nc --arg d "$device" '{device_code:$d}')"
+    [ "$API_STATUS" = 200 ] && { signed_in "$API_BODY"; return 0; }
+  done
+  die "The sign-in expired. Run gpushed login again."
+}
+
+usage() {
+  cat <<EOF
+gpushed $VERSION: GPU boxes on demand, billed from a prepaid balance.
+
+Account
+  login [--email [addr]]   Sign in with your smartloop account in the browser
+                           (--email: with an emailed code instead)
+  logout                   Sign out on this Mac
+  balance                  Show your balance (alias: me)
+  topup [usd]              Add credit with Stripe (minimum \$10)
+  history                  Recent charges and top-ups
+
+Box
+  plans [--region R]       GPUs you can run and their hourly price
+  up [plan] [--region R]   Create your box (default plan: l4) in the nearest
+                           region with free GPUs, and set it up
+  status                   Show your box
+  ssh [cmd...]             SSH into your box (or run a command on it)
+  stop                     Stop the box; only its disk is billed while stopped
+  start                    Start a stopped box
+  down                     Delete the box and its disk
+
+  version                  Show the version
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  login)
+    # gpushed accounts are smartloop accounts; the API token is kept in ~/.gpushed/state.
+    case "${1:-}" in
+      --email) shift; email_login "$@" ;;
+      *@*) email_login "$@" ;;
+      "") browser_login ;;
+      *) die "Usage: gpushed login [--email [address]]" ;;
+    esac
+    ;;
+
+  logout)
+    if [ -s "$TOKEN_FILE" ]; then API_ALLOW="401" api POST /auth/logout; fi
+    rm -f "$TOKEN_FILE"
+    say "Signed out."
+    ;;
+
+  balance|me)
+    show_account
+    ;;
+
+  topup)
+    amount="${1:-10}"
+    [[ $amount =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || die "Usage: gpushed topup [amount in USD, e.g. 25]"
+    api POST /topup "{\"amount_usd\": $amount}"; url=$(jq -r .url <<<"$API_BODY")
+    say "💳 Opening Stripe checkout for \$$amount:"
+    open_url "$url"
+    say "Your balance updates as soon as the payment goes through: gpushed balance"
+    ;;
+
+  history)
+    api GET /ledger
+    jq -r '.entries[] | "\(.created_at | todate)  \(.kind | ascii_upcase | .[0:6])  \(.amount_usd)"' \
+      <<<"$API_BODY" | awk '{printf "%-22s %-7s %10s\n", $1, $2, "$"$3}'
+    ;;
+
+  plans)
+    region=""
+    if [ "${1:-}" = --region ]; then region="${2:-}"; [ -n "$region" ] || die "Usage: gpushed plans [--region REGION]"; fi
+    NO_AUTH=1 api GET "/plans${region:+?region=$region}"
+    jq -r '"Prices in \(.region_name) (\(.region))\(if .nearest then ", the region nearest you" else "" end). Default plan: \(.default)\n",
+      (.plans[] | "  \(.id | . + "        " | .[0:8])  $\(.hourly_usd)/h   \(.label)"),
+      "\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
+    say "Prices include disk and IP, and differ a little by region. A stopped box costs only its disk."
+    say "Your box goes to the nearest region with free GPUs; pick one with: gpushed up [plan] --region REGION"
+    ;;
+
+  up)
+    plan="" region=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --region) region="${2:-}"; [ -n "$region" ] || die "Usage: gpushed up [plan] [--region REGION]"; shift 2 ;;
+        --region=*) region="${1#--region=}"; shift ;;
+        -*) die "Usage: gpushed up [plan] [--region REGION]" ;;
+        *) plan="$1"; shift ;;
+      esac
+    done
+    ensure_key
+    body=$(jq -nc --arg p "$plan" --arg r "$region" --arg k "$(cat "$KEY.pub")" \
+      '{ssh_public_key:$k} + (if $p != "" then {plan:$p} else {} end) + (if $r != "" then {region:$r} else {} end)')
+    api POST /box "$body"; res=$API_BODY
+    if [ -n "$region" ]; then where="in $(jq -r .box.region_name <<<"$res")"; else where="nearest region first: $(jq -r .box.region_name <<<"$res")"; fi
+    say "🚀 Creating box $(jq -r .box.id <<<"$res") ($(jq -r .box.plan <<<"$res"), $where; billed per second while it exists)"
+    wait_for running
+    require_running_box
+    box_json
+    say "✅ Running in $(jq -r '.box.region_name + " (" + .box.zone + ")"' <<<"$API_BODY") at $BOX_IP, \$$(jq -r .box.hourly_usd <<<"$API_BODY")/h"
+    wait_for_ssh
+    follow_setup
+    say ""
+    say "🎉 Your GPU box is ready."
+    say "   gpushed ssh      # connect, then try: nvidia-smi"
+    say "   gpushed stop     # pause it (disk kept, ~\$0.03/h)"
+    say "   gpushed down     # delete it"
+    ;;
+
+  status)
+    box_json; b=$API_BODY
+    if [ "$API_STATUS" = 404 ]; then
+      say "No box. Create one with: gpushed up"
+    else
+      jq -r '.box | "📦 Box \(.id)\n   Plan:    \(.plan)  ($\(.hourly_usd)/h running, $\(.stopped_hourly_usd)/h stopped)\n   Status:  \(.status)\n   Region:  \(.region_name) (\(.zone // .region))\n   IP:      \(.ip // "-")" + (if .error then "\n   Error:   \(.error)" else "" end)' <<<"$b"
+      say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$b")"
+      [ "$(jq -r .account.low_balance <<<"$b")" = true ] && say "⚠️  Balance is low; the box stops when it runs out. gpushed topup"
+    fi
+    ;;
+
+  ssh)
+    require_running_box
+    [ -f "$KEY" ] || die "This Mac doesn't have the key for your box (~/.gpushed/state/box_ssh_key)."
+    exec ssh "${SSH_OPTS[@]}" -t "$BOX_USER@$BOX_IP" "$@"
+    ;;
+
+  stop)
+    api POST /box/stop
+    say "⏸️  Stopping your box..."
+    wait_for stopped
+    say "✅ Stopped. Start it again with: gpushed start"
+    ;;
+
+  start)
+    api POST /box/start
+    say "▶️  Starting your box..."
+    wait_for running
+    require_running_box
+    say "✅ Running at $BOX_IP. Connect with: gpushed ssh"
+    ;;
+
+  down)
+    if [ -t 0 ]; then
+      read -r -p "Delete your box and everything on its disk? (y/N) " reply
+      [[ $reply =~ ^[Yy]$ ]] || { say "Cancelled."; exit 0; }
+    fi
+    api DELETE /box
+    say "🗑️  Deleting your box..."
+    wait_for destroyed
+    say "✅ Deleted. You're no longer billed for it."
+    ;;
+
+  version|--version|-v)
+    say "$VERSION"
+    ;;
+
+  help|-h|--help)
+    usage
+    ;;
+
+  *)
+    usage
+    exit 1
+    ;;
+esac

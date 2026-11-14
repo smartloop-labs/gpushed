@@ -1,0 +1,61 @@
+name = "gpushed-api"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# Served at its own hostname, a Worker custom domain: Cloudflare creates the
+# DNS record and certificate. Needs the smartloop.ai zone in this Cloudflare
+# account. (api.smartloop.ai is a Supabase custom domain, so Worker routes on
+# it never run.)
+routes = [{ pattern = "gpushed-api.smartloop.ai", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gpushed"
+database_id = "2c942c01-b93a-4001-a1fc-11fdfbc61840"
+migrations_dir = "migrations"
+
+# Meter usage and enforce balances every 5 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+PUBLIC_URL = "https://gpushed-api.smartloop.ai"
+SMARTLOOP_API = "https://api.smartloop.ai"
+APP_ORIGINS = "https://app.smartloop.ai"
+REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src/regions.ts
+PREMIUM_PCT = "20"
+MIN_TOPUP_USD = "10"
+LOW_BALANCE_USD = "2"
+STOPPED_GRACE_HOURS = "24"
+GITHUB_REPO = "smartloop-labs/gpushed"
+GITHUB_WORKFLOW = "provision.yml"
+GITHUB_REF = "main"
+EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
+
+# Secrets, set with `wrangler secret put NAME`:
+#   STRIPE_SECRET_KEY      Stripe secret key (sk_live_... / sk_test_...)
+#   STRIPE_WEBHOOK_SECRET  signing secret of the endpoint .../v1/stripe/webhook
+#   RESEND_API_KEY         sends balance warnings
+#   GITHUB_TOKEN           fine-grained PAT, Actions: read & write on GITHUB_REPO
+#   PROVISIONER_SECRET     random string, also stored as a GitHub Actions secret
+
+[env.dev]
+name = "gpushed-api-dev"
+routes = []
+d1_databases = [{ binding = "DB", database_name = "gpushed", database_id = "local", migrations_dir = "migrations" }]
+triggers = { crons = ["*/5 * * * *"] }
+[env.dev.vars]
+PUBLIC_URL = "http://localhost:8787"
+SMARTLOOP_API = "http://localhost:8788" # a local smartloop API (or https://api.smartloop.ai)
+APP_ORIGINS = "http://localhost:3000"
+REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src/regions.ts
+PREMIUM_PCT = "20"
+MIN_TOPUP_USD = "10"
+LOW_BALANCE_USD = "2"
+STOPPED_GRACE_HOURS = "24"
+GITHUB_REPO = "smartloop-labs/gpushed"
+GITHUB_WORKFLOW = "provision.yml"
+GITHUB_REF = "main"
+EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
+DEV = "1"
+PROVISIONER_SECRET = "dev-provisioner-secret"
