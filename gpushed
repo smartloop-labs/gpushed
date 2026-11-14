@@ -111,9 +111,15 @@ sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 build_image() {
   local ctx="$BOX_DIR/client"
   [ -f "$ctx/Containerfile" ] || die "Client image source not found in $ctx"
-  say "🔨 Building the gpushed client image..."
-  container build --build-arg VERSION="$VERSION" --tag "$IMAGE" --file "$ctx/Containerfile" "$ctx" >/dev/null \
-    || die "Building the client image failed."
+  say "🔨 Building the gpushed client image (first time only, about a minute)..."
+  local log
+  log="$(mktemp)"
+  if ! container build --build-arg VERSION="$VERSION" --tag "$IMAGE" --file "$ctx/Containerfile" "$ctx" >"$log" 2>&1; then
+    tail -30 "$log"
+    rm -f "$log"
+    die "Building the client image failed."
+  fi
+  rm -f "$log"
 }
 
 # Load this version's client image from R2 (once), verifying its checksum.
