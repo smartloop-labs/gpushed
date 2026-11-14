@@ -30,6 +30,10 @@ else
   VERSION="dev" # a git checkout: build the client image from ./client
 fi
 IMAGE="gpushed-cli:$VERSION"
+if [ "$VERSION" = dev ]; then
+  # Rebuild whenever ./client changes.
+  IMAGE="gpushed-cli:dev-$(cat "$BOX_DIR"/client/* 2>/dev/null | shasum -a 256 | cut -c1-12)"
+fi
 
 say() { printf '%s\n' "$*"; }
 die() { printf '❌ %s\n' "$*" >&2; exit 1; }
@@ -162,7 +166,10 @@ run_client() {
 
   local flags=(--rm --progress none -v "$STATE:/state")
   if [ -t 0 ] && [ -t 1 ]; then flags+=(-it); else flags+=(-i); fi
-  [ -n "${GPUSHED_API:-}" ] && flags+=(-e "GPUSHED_API=$GPUSHED_API")
+  local v
+  for v in GPUSHED_API GPUSHED_SMARTLOOP_API GPUSHED_SIGNUP_URL; do
+    [ -n "${!v:-}" ] && flags+=(-e "$v=${!v}")
+  done
   [ -n "${TERM:-}" ] && flags+=(-e "TERM=$TERM")
 
   local status=0

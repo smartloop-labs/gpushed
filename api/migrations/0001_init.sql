@@ -1,9 +1,11 @@
 -- Money is stored in micro-dollars (1 USD = 1,000,000) so per-minute usage
 -- charges don't round away. Times are Unix seconds.
 
+-- A gpushed user is a smartloop account: id is the smartloop user id, and
+-- email is copied from smartloop at each sign-in.
 CREATE TABLE users (
   id                 TEXT PRIMARY KEY,
-  email              TEXT NOT NULL UNIQUE,
+  email              TEXT NOT NULL,
   balance_micros     INTEGER NOT NULL DEFAULT 0,
   low_balance_warned INTEGER NOT NULL DEFAULT 0,
   exhausted_at       INTEGER,          -- when the balance was first seen at or below zero
@@ -16,20 +18,6 @@ CREATE TABLE api_tokens (
   user_id    TEXT NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL
 );
-
--- Email magic-link sign-in. The emailed link verifies the request; only the
--- CLI that started it (holding the poll token) can claim the API token.
-CREATE TABLE login_requests (
-  id          TEXT PRIMARY KEY,
-  email       TEXT NOT NULL,
-  verify_hash TEXT NOT NULL,
-  poll_hash   TEXT NOT NULL,
-  created_at  INTEGER NOT NULL,
-  expires_at  INTEGER NOT NULL,
-  verified_at INTEGER,
-  claimed_at  INTEGER
-);
-CREATE INDEX login_requests_email ON login_requests(email, created_at);
 
 -- status: pending | running | stopping | stopped | starting | destroying | destroyed | failed
 -- metered_until: usage has been charged up to this time; NULL while no VM exists.

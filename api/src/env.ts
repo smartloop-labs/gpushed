@@ -1,7 +1,9 @@
 export interface Env {
   DB: D1Database;
 
-  PUBLIC_URL: string; // e.g. https://api.gpushed.smartloop.ai
+  PUBLIC_URL: string; // e.g. https://api.smartloop.ai/v1/gpushed
+  SMARTLOOP_API: string; // smartloop API that signs users in, e.g. https://api.smartloop.ai
+  APP_ORIGINS?: string; // comma-separated web app origins allowed to call the API (CORS)
   REGION: string; // GCP region boxes are created in
   PREMIUM_PCT: string; // markup on GCP cost, e.g. "20"
   MIN_TOPUP_USD: string; // e.g. "10"

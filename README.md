@@ -61,7 +61,7 @@ with no credit for 24 hours is deleted.
 | Command | What it does |
 |---|---|
 | `gpushed init` | Install Apple's container runtime, fetch the client, sign in |
-| `gpushed login [email]` | Sign in with a link sent to your email |
+| `gpushed login [email]` | Sign in with your smartloop account (emailed code); opens smartloop sign-up if you don't have one |
 | `gpushed logout` | Sign out on this Mac |
 | `gpushed balance` | Show your balance |
 | `gpushed topup [usd]` | Add credit (opens Stripe Checkout; minimum $10) |
@@ -100,7 +100,8 @@ can't reach each other.
                         │ API token (per user)
                         ▼
               gpushed API  (Cloudflare Worker + D1)
-              sign-in · balances · Stripe · metering cron (every 5 min)
+              at api.smartloop.ai/v1/gpushed · smartloop accounts · balances
+              Stripe · metering cron (every 5 min)
                         │ workflow_dispatch (box ID only)
                         ▼
               GitHub Actions: provision.yml
@@ -115,7 +116,7 @@ can't reach each other.
 |---|---|
 | [`gpushed`](gpushed), [`install.sh`](install.sh) | Mac command and installer |
 | [`client/`](client) | Client image (`Containerfile`) and the CLI that runs in it |
-| [`api/`](api) | Cloudflare Worker: auth, billing, Stripe webhook, metering, dispatch |
+| [`api/`](api) | Cloudflare Worker: smartloop sign-in, billing, Stripe webhook, metering, dispatch |
 | [`provisioner/`](provisioner) | Provisioner image, entrypoint and the box's Terraform |
 | [`infra/bootstrap/`](infra/bootstrap) | One-time GCP setup: network, service account, Workload Identity |
 | [`.github/workflows/`](.github/workflows) | `provision.yml`, `release.yml`, `ci.yml` (tests + API deploy) |
@@ -126,6 +127,22 @@ create VMs in our project without paying. Instead, the client holds only a
 per-user API token; the API checks the balance before it asks GitHub Actions
 (which has the cloud access) to provision anything, and metering runs on the
 server.
+
+**Accounts.** gpushed users are smartloop accounts. `gpushed login` asks
+smartloop's API (`/v1/auth/otp/request` and `/verify`) for an emailed sign-in
+code; if the email has no account, it opens <https://app.smartloop.ai/signup>.
+The CLI then trades the smartloop access token for a long-lived gpushed token
+(`POST /auth/smartloop`, which checks it with smartloop's `/v1/users/me`). The
+gpushed user id is the smartloop user id.
+
+**Web app.** The smartloop web app can call the same API from the browser with
+the user's smartloop access token (`Authorization: Bearer <token>`), from the
+origins in `APP_ORIGINS`. Useful routes for a usage page:
+`GET /v1/gpushed/me` (balance and box), `GET /v1/gpushed/usage?days=30`
+(spend and top-ups per day), `GET /v1/gpushed/ledger?kind=topup` (recent
+top-ups), `GET /v1/gpushed/plans`, and `POST /v1/gpushed/topup` (returns a
+Stripe checkout URL; pass `return_url` on the web app to come back to it with
+`?topup=done` or `?topup=cancelled`).
 
 **Billing.** Money is stored in micro-dollars in D1. Every change is a ledger
 row with a unique ref, so Stripe webhooks and metering runs are idempotent.
@@ -159,13 +176,17 @@ price while running and the disk price while stopped.
    npx wrangler d1 create gpushed          # put the id in wrangler.toml
    npx wrangler d1 migrations apply gpushed --remote
    npx wrangler secret put STRIPE_SECRET_KEY
-   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://api.gpushed.smartloop.ai/v1/stripe/webhook,
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://api.smartloop.ai/v1/gpushed/stripe/webhook,
                                                    # events: checkout.session.completed, checkout.session.async_payment_succeeded
-   npx wrangler secret put RESEND_API_KEY          # sign-in and balance emails
+   npx wrangler secret put RESEND_API_KEY          # low-balance emails
    npx wrangler secret put GITHUB_TOKEN            # fine-grained PAT: Actions read/write on this repo
    npx wrangler secret put PROVISIONER_SECRET      # random; same value as the GitHub secret below
    npx wrangler deploy
    ```
+   The Worker is routed at `api.smartloop.ai/v1/gpushed/*`, so the
+   `smartloop.ai` zone must be in the same Cloudflare account and the `api`
+   record proxied (orange cloud); the rest of `api.smartloop.ai` keeps going to
+   smartloop's API.
    Pricing knobs (`PREMIUM_PCT`, `MIN_TOPUP_USD`, `LOW_BALANCE_USD`,
    `STOPPED_GRACE_HOURS`, `REGION`) are in [`api/wrangler.toml`](api/wrangler.toml);
    GCP list prices per plan are in [`api/src/pricing.ts`](api/src/pricing.ts).
@@ -175,7 +196,7 @@ price while running and the disk price while stopped.
    | Kind | Name | Value |
    |---|---|---|
    | variable | `GCP_PROJECT`, `GCP_SUBNETWORK`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | bootstrap outputs |
-   | variable | `GPUSHED_API` | `https://api.gpushed.smartloop.ai` |
+   | variable | `GPUSHED_API` | `https://api.smartloop.ai/v1/gpushed` |
    | variable | `GPUSHED_DL` | `https://dl.gpushed.smartloop.ai` |
    | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
    | variable | `R2_STATE_BUCKET` / `R2_RELEASE_BUCKET` | `gpushed-state` / `gpushed-releases` |
@@ -209,11 +230,14 @@ OCI archive for `container image load`) and the provisioner image
 cd api && npm ci
 npx wrangler d1 migrations apply gpushed --local --env dev
 npx wrangler dev --env dev --test-scheduled --ip 0.0.0.0   # emails and dispatches are logged, not sent
+# Sign-in goes to SMARTLOOP_API in wrangler.toml [env.dev] (a local smartloop
+# API on :8788, or set it to https://api.smartloop.ai to use real accounts).
 npm test
 
 # In another terminal, from a checkout (builds the client image locally). Use
 # the Mac's address as seen from containers (the vmnet gateway, usually 192.168.64.1):
-GPUSHED_API=http://192.168.64.1:8787 ./gpushed login you@example.com
+GPUSHED_API=http://192.168.64.1:8787 GPUSHED_SMARTLOOP_API=http://192.168.64.1:8788 \
+  ./gpushed login you@example.com
 ```
 
 `curl localhost:8787/__scheduled` runs the metering cron once.

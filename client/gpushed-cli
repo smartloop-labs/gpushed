@@ -1,11 +1,14 @@
 #!/bin/bash
 #
 # gpushed client. Runs inside the gpushed-cli container (started by the
-# `gpushed` command on the Mac); talks to the gpushed API.
+# `gpushed` command on the Mac); talks to the gpushed API. Accounts are
+# smartloop accounts: `login` signs in to smartloop with an emailed code.
 
 set -euo pipefail
 
-API="${GPUSHED_API:-https://api.gpushed.smartloop.ai}"
+API="${GPUSHED_API:-https://api.smartloop.ai/v1/gpushed}"
+SMARTLOOP_API="${GPUSHED_SMARTLOOP_API:-https://api.smartloop.ai}"
+SIGNUP_URL="${GPUSHED_SIGNUP_URL:-https://app.smartloop.ai/signup}"
 STATE="${GPUSHED_STATE:-/state}"
 TOKEN_FILE="$STATE/token"
 KEY="$STATE/box_ssh_key"
@@ -44,6 +47,19 @@ api() {
   fi
 }
 
+# smartloop METHOD PATH JSON: call the smartloop API (sign-in only). Sets
+# SL_STATUS, SL_BODY, and SL_CODE/SL_MSG from its {"detail": {code, message}} errors.
+smartloop() {
+  local out
+  out=$(mktemp)
+  SL_STATUS=$(curl -sS -o "$out" -w '%{http_code}' -X "$1" "$SMARTLOOP_API$2" \
+    -H "content-type: application/json" -H "user-agent: gpushed-cli/$VERSION" --data "$3") \
+    || { rm -f "$out"; die "Could not reach $SMARTLOOP_API"; }
+  SL_BODY=$(cat "$out"); rm -f "$out"
+  SL_CODE=$(jq -r '.detail.code? // empty' <<<"$SL_BODY" 2>/dev/null || true)
+  SL_MSG=$(jq -r 'if (.detail|type) == "object" then .detail.message elif (.detail|type) == "string" then .detail else empty end' <<<"$SL_BODY" 2>/dev/null || true)
+}
+
 ensure_key() {
   if [ ! -f "$KEY" ]; then
     ssh-keygen -q -t ed25519 -N "" -C "gpushed" -f "$KEY"
@@ -51,7 +67,7 @@ ensure_key() {
   fi
 }
 
-box_json() { API_ALLOW="404" api GET /v1/box; }  # -> API_STATUS, API_BODY
+box_json() { API_ALLOW="404" api GET /box; }  # -> API_STATUS, API_BODY
 
 require_running_box() {
   local b; box_json; b=$API_BODY
@@ -103,7 +119,7 @@ follow_setup() {
 }
 
 show_account() {
-  local me; api GET /v1/me; me=$API_BODY
+  local me; api GET /me; me=$API_BODY
   say "👤 $(jq -r .email <<<"$me")"
   say "💰 Balance: \$$(jq -r .balance_usd <<<"$me")"
   if [ "$(jq -r .balance_micros <<<"$me")" -le 0 ]; then
@@ -118,7 +134,7 @@ usage() {
 gpushed $VERSION: GPU boxes on demand, billed from a prepaid balance.
 
 Account
-  login [email]   Sign in with a link sent to your email
+  login [email]   Sign in with your smartloop account (or create one)
   logout          Sign out on this Mac
   balance         Show your balance (alias: me)
   topup [usd]     Add credit with Stripe (minimum \$10)
@@ -142,37 +158,56 @@ shift || true
 
 case "$cmd" in
   login)
+    # Sign in with your smartloop account: smartloop emails a code, and the
+    # smartloop session is traded for a gpushed token kept in ~/.gpushed/state.
+    [ -t 0 ] || die "gpushed login needs a terminal (it asks for the code smartloop emails you)."
     email="${1:-}"
-    if [ -z "$email" ]; then
-      [ -t 0 ] || die "Usage: gpushed login EMAIL"
-      read -r -p "Email: " email
-    fi
-    NO_AUTH=1 api POST /v1/auth/start "$(jq -nc --arg e "$email" '{email:$e}')"; res=$API_BODY
-    rid=$(jq -r .request_id <<<"$res"); pt=$(jq -r .poll_token <<<"$res")
-    say "📧 We sent a sign-in link to $email. Open it to continue (waiting up to 15 minutes)..."
-    for _ in $(seq 1 300); do
-      sleep 3
-      NO_AUTH=1 API_ALLOW="202" api POST /v1/auth/poll "$(jq -nc --arg r "$rid" --arg p "$pt" '{request_id:$r, poll_token:$p}')"
-      res=$API_BODY
-      if [ "$API_STATUS" = 200 ]; then
-        umask 077
-        jq -r .token <<<"$res" > "$TOKEN_FILE"
-        say "✅ Signed in as $(jq -r .account.email <<<"$res")."
-        say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$res")"
-        if [ "$(jq -r .account.balance_micros <<<"$res")" -le 0 ]; then
-          say ""
-          say "Add credit to start a box (minimum \$$(jq -r .account.min_topup_usd <<<"$res")): gpushed topup"
-        else
-          say "Next: gpushed up"
-        fi
-        exit 0
-      fi
+    [ -n "$email" ] || read -r -p "smartloop account email: " email
+    email=$(tr '[:upper:]' '[:lower:]' <<<"$email" | tr -d '[:space:]')
+    [[ $email == ?*@?*.?* ]] || die "That doesn't look like an email address."
+    while true; do
+      smartloop POST /v1/auth/otp/request "$(jq -nc --arg e "$email" '{email:$e}')"
+      [ "$SL_CODE" = OTP_NO_ACCOUNT ] || break
+      say "🆕 There's no smartloop account for $email yet. gpushed uses your smartloop account;"
+      say "   create one (it's free) in your browser:"
+      open_url "$SIGNUP_URL"
+      read -r -p "   Press Enter once you've signed up with $email (or Ctrl-C to stop) " _
     done
-    die "Sign-in timed out. Run gpushed login again."
+    case "$SL_STATUS" in
+      200) ;;
+      429) die "${SL_MSG:-A code was just sent. Wait a moment and try again.}" ;;
+      *) die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}" ;;
+    esac
+    say "📧 smartloop sent a sign-in code to $email."
+    for attempt in 1 2 3; do
+      read -r -p "   Code: " code
+      code=$(tr -d '[:space:]' <<<"$code")
+      smartloop POST /v1/auth/otp/verify "$(jq -nc --arg e "$email" --arg c "$code" '{email:$e, code:$c}')"
+      [ "$SL_STATUS" = 200 ] && break
+      case "$SL_CODE" in
+        OTP_INVALID) [ "$attempt" -lt 3 ] && { say "   ${SL_MSG:-That code is not valid.} Try again."; continue; } ;;
+      esac
+      die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}. Run gpushed login again."
+    done
+    [ "$SL_STATUS" = 200 ] || die "Sign-in failed. Run gpushed login again."
+    access=$(jq -r '.access_token // empty' <<<"$SL_BODY")
+    [ -n "$access" ] || die "Unexpected response from smartloop sign-in."
+
+    NO_AUTH=1 api POST /auth/smartloop "$(jq -nc --arg t "$access" '{access_token:$t}')"; res=$API_BODY
+    umask 077
+    jq -r .token <<<"$res" > "$TOKEN_FILE"
+    say "✅ Signed in as $(jq -r .account.email <<<"$res")."
+    say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$res")"
+    if [ "$(jq -r .account.balance_micros <<<"$res")" -le 0 ]; then
+      say ""
+      say "Add credit to start a box (minimum \$$(jq -r .account.min_topup_usd <<<"$res")): gpushed topup"
+    else
+      say "Next: gpushed up"
+    fi
     ;;
 
   logout)
-    if [ -s "$TOKEN_FILE" ]; then API_ALLOW="401" api POST /v1/auth/logout; fi
+    if [ -s "$TOKEN_FILE" ]; then API_ALLOW="401" api POST /auth/logout; fi
     rm -f "$TOKEN_FILE"
     say "Signed out."
     ;;
@@ -184,20 +219,20 @@ case "$cmd" in
   topup)
     amount="${1:-10}"
     [[ $amount =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || die "Usage: gpushed topup [amount in USD, e.g. 25]"
-    api POST /v1/topup "{\"amount_usd\": $amount}"; url=$(jq -r .url <<<"$API_BODY")
+    api POST /topup "{\"amount_usd\": $amount}"; url=$(jq -r .url <<<"$API_BODY")
     say "💳 Opening Stripe checkout for \$$amount:"
     open_url "$url"
     say "Your balance updates as soon as the payment goes through: gpushed balance"
     ;;
 
   history)
-    api GET /v1/ledger
+    api GET /ledger
     jq -r '.entries[] | "\(.created_at | todate)  \(.kind | ascii_upcase | .[0:6])  \(.amount_usd)"' \
       <<<"$API_BODY" | awk '{printf "%-22s %-7s %10s\n", $1, $2, "$"$3}'
     ;;
 
   plans)
-    NO_AUTH=1 api GET /v1/plans
+    NO_AUTH=1 api GET /plans
     jq -r '"Region: \(.region)   (default plan: \(.default))\n", (.plans[] | "  \(.id | . + "        " | .[0:8])  $\(.hourly_usd)/h   \(.label)")' <<<"$API_BODY"
     say ""
     say "Prices include disk and IP. A stopped box costs only its disk (about \$0.03/h)."
@@ -207,7 +242,7 @@ case "$cmd" in
     plan="${1:-}"
     ensure_key
     body=$(jq -nc --arg p "$plan" --arg k "$(cat "$KEY.pub")" '{ssh_public_key:$k} + (if $p != "" then {plan:$p} else {} end)')
-    api POST /v1/box "$body"; res=$API_BODY
+    api POST /box "$body"; res=$API_BODY
     say "🚀 Creating box $(jq -r .box.id <<<"$res") ($(jq -r .box.plan <<<"$res"), \$$(jq -r .box.hourly_usd <<<"$res")/h, billed per second while it exists)"
     wait_for running
     require_running_box
@@ -239,14 +274,14 @@ case "$cmd" in
     ;;
 
   stop)
-    api POST /v1/box/stop
+    api POST /box/stop
     say "⏸️  Stopping your box..."
     wait_for stopped
     say "✅ Stopped. Start it again with: gpushed start"
     ;;
 
   start)
-    api POST /v1/box/start
+    api POST /box/start
     say "▶️  Starting your box..."
     wait_for running
     require_running_box
@@ -258,7 +293,7 @@ case "$cmd" in
       read -r -p "Delete your box and everything on its disk? (y/N) " reply
       [[ $reply =~ ^[Yy]$ ]] || { say "Cancelled."; exit 0; }
     fi
-    api DELETE /v1/box
+    api DELETE /box
     say "🗑️  Deleting your box..."
     wait_for destroyed
     say "✅ Deleted. You're no longer billed for it."
