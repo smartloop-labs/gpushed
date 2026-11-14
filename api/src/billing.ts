@@ -139,6 +139,39 @@ export async function credit(env: Env, userId: string, micros: number, kind: str
 // Cron: bill every box with a live VM, warn users running low, stop boxes
 // whose owner is about to run out, and destroy them once the balance has been
 // at or below zero for the grace period.
+// After a credited top-up: when it's the account's first, send the gpushed
+// welcome email. A failed send is logged and not retried (the credit is what
+// matters), and a redelivered Stripe event doesn't credit, so never re-sends.
+export async function welcomeOnFirstTopup(env: Env, userId: string): Promise<boolean> {
+  const u = await env.DB.prepare(
+    "SELECT email, balance_micros, (SELECT COUNT(*) FROM ledger WHERE user_id = ?1 AND kind = 'topup') AS topups FROM users WHERE id = ?1",
+  )
+    .bind(userId)
+    .first<{ email: string; balance_micros: number; topups: number }>();
+  if (!u || u.topups !== 1) return false;
+  try {
+    await sendEmail(env, u.email, "Welcome to gpushed: your credit is ready", welcomeText(u.balance_micros));
+    return true;
+  } catch (e) {
+    console.error(`welcome email for ${userId} failed`, e);
+    return false;
+  }
+}
+
+export function welcomeText(balanceMicros: number): string {
+  return (
+    `Welcome to gpushed! Your balance is $${usd(balanceMicros)}, so you can start a GPU box now.\n\n` +
+    `  gpushed plans        prices for the A100, L4 and Tesla T4\n` +
+    `  gpushed up           start a box (the L4 by default; gpushed up a100 for the big one)\n` +
+    `  gpushed ssh          connect to it\n` +
+    `  gpushed stop         stop it; you pay only for its disk while it's stopped\n` +
+    `  gpushed down         delete it when you're done\n\n` +
+    `Boxes boot with the NVIDIA driver, CUDA, Python and dev tools ready, and are billed per second ` +
+    `from your balance. We email you when it runs low; top up any time with: gpushed topup\n\n` +
+    `Docs and FAQ: https://gpushed.dev\n`
+  );
+}
+
 export async function runMetering(env: Env, now: number): Promise<void> {
   const { results: live } = await env.DB.prepare(
     "SELECT * FROM boxes WHERE metered_until IS NOT NULL AND status != 'destroyed'",

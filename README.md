@@ -79,7 +79,7 @@ with no credit for 24 hours is deleted.
 | `gpushed login` | Sign in with your smartloop account in the browser (`--email [address]`: with an emailed code instead) |
 | `gpushed logout` | Sign out on this Mac |
 | `gpushed balance` | Show your balance |
-| `gpushed topup [usd]` | Add credit (opens Stripe Checkout; minimum $10) |
+| `gpushed topup [usd]` | Add credit (opens Stripe Checkout; minimum $10). Without an amount, pick $10, $25, $50 or $100 |
 | `gpushed history` | Recent charges and top-ups |
 | `gpushed plans` | GPUs available and their prices |
 | `gpushed up [plan]` | Create your box and watch it install the driver + CUDA |

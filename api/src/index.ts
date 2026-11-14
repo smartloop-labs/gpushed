@@ -1,4 +1,4 @@
-import { type Box, type User, credit, getBox, meterBox, runMetering, updateBox } from "./billing";
+import { type Box, type User, credit, getBox, meterBox, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
@@ -384,7 +384,9 @@ route("POST", "/stripe/webhook", async (req, env) => {
     const s = event.data.object;
     const userId = s.metadata?.user_id ?? s.client_reference_id;
     const cents = topupCents(s);
-    if (userId && cents > 0) await credit(env, userId, cents * 10_000, "topup", `stripe:${s.id}`, nowSec());
+    if (userId && cents > 0 && (await credit(env, userId, cents * 10_000, "topup", `stripe:${s.id}`, nowSec()))) {
+      await welcomeOnFirstTopup(env, userId);
+    }
   }
   return json({ received: true });
 });
