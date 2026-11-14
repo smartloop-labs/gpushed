@@ -29,8 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh
-      - run: shellcheck -S warning gpushed install.sh client/gpushed-cli provisioner/provision.sh
+      - run: bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh image/build.sh
+      - run: shellcheck -S warning gpushed install.sh client/gpushed-cli provisioner/provision.sh image/build.sh
 
   terraform:
     runs-on: ubuntu-latest

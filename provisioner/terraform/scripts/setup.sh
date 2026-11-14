@@ -1,7 +1,10 @@
 #!/bin/bash
 set -e
 
-# NVIDIA-only box setup: GPU driver + CUDA toolkit. Nothing else.
+# Box setup: NVIDIA driver + CUDA toolkit, plus the everyday toolchain
+# (build tools, Python 3.11, Node.js LTS, Rust) so users can start right away.
+# Normally baked into the gpushed-cuda image by image/build.sh, so a new box
+# skips it; it only runs at boot on a box created from stock Ubuntu.
 # NOTE: rendered by Terraform templatefile(); escape shell vars as $${var}.
 
 LOGFILE="/var/log/setup-script.log"
@@ -47,7 +50,13 @@ Acquire::https::Timeout "20";
 APTCONF
 
 apt_retry update -y
-apt_retry install -y curl wget linux-headers-$(uname -r) dkms
+apt_retry install -y curl wget ca-certificates gnupg software-properties-common linux-headers-$(uname -r) dkms
+
+# The NVIDIA module is built for this kernel. Keep unattended-upgrades from
+# moving to a new kernel underneath it (security updates still apply).
+cat > /etc/apt/apt.conf.d/51box-no-kernel-upgrades << 'UUCONF'
+Unattended-Upgrade::Package-Blacklist { "linux-"; };
+UUCONF
 
 # Runtime libraries common local-inference apps (llama.cpp/Vulkan builds such
 # as docent) link against; the stock image lacks them.
@@ -61,6 +70,14 @@ if ! dpkg -l | grep -q "^ii.*nvidia-driver-535-server"; then
   echo "ERROR: NVIDIA driver installation failed"
   exit 1
 fi
+
+# Build the module for every installed kernel, not just the running one, so a
+# kernel that unattended-upgrades pulled in before the hold above still boots
+# with a working driver (this matters most when baking the image).
+for k in $(ls /lib/modules); do
+  apt_retry install -y "linux-headers-$k" || echo "WARNING: no headers for $k"
+  dkms autoinstall -k "$k" || echo "WARNING: dkms failed for $k"
+done
 
 modprobe nvidia || true
 modprobe nvidia-uvm || true
@@ -78,6 +95,48 @@ export PATH=/usr/local/cuda/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 CUDAEOF
 chmod +x /etc/profile.d/cuda.sh
+
+# ---------------------------------------------------------------- dev tools
+
+echo "Installing build tools..."
+apt_retry install -y build-essential git git-lfs cmake ninja-build pkg-config \
+  unzip zip jq htop tmux tree rsync
+
+# Python 3.11 (deadsnakes) alongside the system python3 (3.10, which Ubuntu's
+# own tools need). `python` and `pip` mean 3.11; uv is there for fast venvs.
+echo "Installing Python 3.11..."
+add-apt-repository -y ppa:deadsnakes/ppa
+apt_retry update -y
+apt_retry install -y python3.11 python3.11-venv python3.11-dev
+python3.11 -m ensurepip --upgrade
+python3.11 -m pip install --no-cache-dir --upgrade pip
+update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+
+# Node.js LTS (NodeSource)
+echo "Installing Node.js 24 LTS..."
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+apt_retry install -y nodejs
+
+# Rust (rustup, stable) for every user: toolchains in /opt/rust, each user's
+# crates and `cargo install` binaries in their own ~/.cargo.
+echo "Installing Rust..."
+export RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile default
+chmod -R a+rwX /opt/rust/rustup
+for bin in /opt/rust/cargo/bin/*; do ln -sf "$bin" /usr/local/bin/; done
+unset CARGO_HOME
+# pam_env reads /etc/environment for every SSH session, login shell or not.
+grep -q '^RUSTUP_HOME=' /etc/environment || echo 'RUSTUP_HOME=/opt/rust/rustup' >> /etc/environment
+cat > /etc/profile.d/rust.sh << 'RUSTEOF'
+export RUSTUP_HOME=/opt/rust/rustup
+export PATH=$HOME/.cargo/bin:$PATH
+RUSTEOF
+chmod +x /etc/profile.d/rust.sh
+
+echo "Installed: $(python --version), node $(node --version), $(rustc --version), $(/usr/local/cuda/bin/nvcc --version | tail -1)"
+apt-get clean
 
 echo "$(date): NVIDIA setup completed successfully" > /var/log/setup-completed
 chmod 644 /var/log/setup-completed

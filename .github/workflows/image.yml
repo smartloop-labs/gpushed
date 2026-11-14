@@ -1,0 +1,56 @@
+# Bakes the gpushed-cuda boot image (image/build.sh): Ubuntu 22.04 with the
+# NVIDIA driver, CUDA and dev tools preinstalled, so new boxes are ready in a
+# minute or two instead of installing for 10-15. Runs when the box setup
+# changes on main, or by hand: Actions > Build image > Run workflow.
+#
+# Needs GCP_IMAGE_SERVICE_ACCOUNT in the `production` environment (set by the
+# Bootstrap GCP workflow). Boxes created before a new image keep their disk.
+name: Build image
+
+on:
+  push:
+    branches: [main]
+    paths: ["provisioner/terraform/scripts/setup.sh", "image/**", ".github/workflows/image.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # for Workload Identity Federation
+
+concurrency:
+  group: image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: production
+    env:
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      IMAGE_SA: ${{ vars.GCP_IMAGE_SERVICE_ACCOUNT }}
+    steps:
+      - name: Check setup
+        id: check
+        run: |
+          if [ -z "$IMAGE_SA" ]; then
+            echo "::warning::GCP_IMAGE_SERVICE_ACCOUNT is not set; run Bootstrap GCP (apply) first. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.check.outputs.skip != 'true'
+
+      - uses: google-github-actions/auth@v2
+        if: steps.check.outputs.skip != 'true'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_IMAGE_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.check.outputs.skip != 'true'
+
+      - name: Build image
+        if: steps.check.outputs.skip != 'true'
+        run: image/build.sh
