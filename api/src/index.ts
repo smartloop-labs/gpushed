@@ -33,7 +33,7 @@ export default {
   },
 };
 
-// Served at https://gpushed-api.smartloop.ai (see wrangler.toml).
+// Served at https://api.gpushed.dev (see wrangler.toml).
 async function handle(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;

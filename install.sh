@@ -2,7 +2,7 @@
 #
 # Install gpushed:
 #
-#   curl -fsSL gpushed.smartloop.ai/install.sh | bash
+#   curl -fsSL gpushed.dev/install.sh | bash
 #
 # gpushed runs on Macs with Apple silicon and macOS 26+, using Apple's native
 # `container` runtime. Releases are served from Cloudflare R2.
@@ -12,7 +12,7 @@
 #   GPUSHED_HOME      Install directory; also holds your API token and SSH key
 #                     (default: ~/.gpushed)
 #   GPUSHED_BIN_DIR   Where the `gpushed` command is linked (default: ~/.local/bin)
-#   GPUSHED_DL        Release download base (default: https://dl.gpushed.smartloop.ai)
+#   GPUSHED_DL        Release download base (default: https://dl.gpushed.dev)
 #   GPUSHED_NO_INIT   Set to 1 to skip running `gpushed init` afterwards
 #
 # Re-running it upgrades in place and keeps your sign-in and SSH key.
@@ -21,7 +21,7 @@ set -euo pipefail
 
 # Everything is inside main so a partially downloaded script never runs.
 main() {
-  local dl="${GPUSHED_DL:-https://dl.gpushed.smartloop.ai}"
+  local dl="${GPUSHED_DL:-https://dl.gpushed.dev}"
   local version="${GPUSHED_VERSION:-latest}"
   local home="${GPUSHED_HOME:-$HOME/.gpushed}"
   local bin_dir="${GPUSHED_BIN_DIR:-$HOME/.local/bin}"
