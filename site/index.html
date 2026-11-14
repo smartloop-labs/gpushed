@@ -239,7 +239,7 @@
 <span class="t-dim">   … pending</span>
 <span class="t-dim">   … running</span>
 <span class="t-g">✅ Running</span>
-<span class="t-dim">📦 Installing NVIDIA driver + CUDA 12.6…</span>
+<span class="t-dim">📦 Prebuilt image: CUDA 12.6, Python 3.11, Node, Rust</span>
 <span class="t-g">🎉 Your GPU box is ready.</span>
 
 <span class="t-cmd">gpushed ssh</span>
@@ -288,8 +288,8 @@ name, memory.total [MiB]
         </div>
         <div class="feature">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
-          <h3>CUDA ready</h3>
-          <p>NVIDIA driver 535 and CUDA Toolkit 12.6 are installed on first boot, with progress streamed to your terminal.</p>
+          <h3>CUDA and your tools, ready</h3>
+          <p>Boots from a prebuilt image with NVIDIA driver 535, CUDA 12.6, Python 3.11, Node.js and Rust already installed. Ready in minutes.</p>
         </div>
         <div class="feature">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
@@ -367,7 +367,7 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>What's on the box?</summary>
-            <p>Ubuntu 22.04 with the NVIDIA driver and CUDA Toolkit 12.6. Nothing else, so you can install PyTorch, JAX, vLLM or whatever your work needs, with full root access.</p>
+            <p>Ubuntu 22.04 with the NVIDIA driver and CUDA Toolkit 12.6, plus Python 3.11 (pip and uv), Node.js 24 LTS, Rust, git and build tools. <code>pip install torch</code> and go, with full root access for anything else.</p>
           </details>
           <details>
             <summary>Where does it run?</summary>

@@ -3,10 +3,11 @@
 > **macOS only:** Macs with Apple silicon on macOS 26+, using Apple's native
 > `container` runtime. Linux, Windows and Intel Macs aren't supported.
 
-Your dedicated NVIDIA GPU, on your Mac. Sign in with your email, add credit, and
-get an NVIDIA GPU box (Ubuntu 22.04, driver + CUDA) in a few minutes. There's no
-cloud account, quota request or Terraform to set up. You pay per second from a
-prepaid balance and delete the box when you're done.
+Your dedicated NVIDIA GPU, on your Mac. Sign in with your email, add credit,
+and get an NVIDIA GPU box (Ubuntu 22.04 with the driver, CUDA, Python, Node.js
+and Rust ready) in a few minutes. There's no cloud account, quota request or
+Terraform to set up. You pay per second from a prepaid balance and delete the
+box when you're done.
 
 Install. This also runs `gpushed init`, which sets up Apple's container runtime
 and signs you in by email:
@@ -95,12 +96,17 @@ in `gpushed status`; it changes after a stop/start).
 
 ## What you get
 
-- An Ubuntu 22.04 VM with the NVIDIA driver 535 (server) and CUDA Toolkit 12.6;
-  nothing else, so the box is yours to set up
+- An Ubuntu 22.04 VM with the NVIDIA driver 535 (server) and CUDA Toolkit 12.6
+- The everyday toolchain, preinstalled: Python 3.11 (`python`, `pip`, `uv`;
+  the system `python3` stays 3.10), Node.js 24 LTS with npm, Rust stable
+  (`rustup`, `cargo`), and `build-essential`, `git`, `cmake`, `tmux`, `htop`
+  and `jq`. You have root to add anything else
 - A 100 GB SSD and a public IP; only SSH (port 22) is open
-- First boot takes 10–15 minutes, mostly installing the driver and CUDA.
-  `gpushed up` streams the progress. If `nvidia-smi` can't talk to the driver
-  right after setup, `sudo reboot` once.
+- Boxes boot from a prebuilt image with all of that baked in, so a new box is
+  ready a minute or two after Google Cloud starts it. (If the image is ever
+  unavailable, the box installs everything on first boot instead, which
+  takes 10–15 minutes; `gpushed up` streams the progress.) If `nvidia-smi`
+  can't talk to the driver, `sudo reboot` once.
 
 Boxes run in smartloop's GCP project. They have no Google credentials and
 can't reach each other.

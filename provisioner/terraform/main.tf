@@ -15,7 +15,7 @@ resource "google_compute_instance" "box" {
 
   boot_disk {
     initialize_params {
-      image = "ubuntu-os-cloud/ubuntu-2204-lts"
+      image = var.image
       size  = 100
       type  = "pd-ssd"
     }
@@ -64,6 +64,13 @@ resource "google_compute_instance" "box" {
 
   desired_status            = var.desired_status
   allow_stopping_for_update = true
+
+  # Both force a new instance (and a wiped disk) when they change. A new
+  # image or setup script is for new boxes only; never replace a user's box
+  # for it on a later start or stop.
+  lifecycle {
+    ignore_changes = [boot_disk[0].initialize_params[0].image, metadata_startup_script]
+  }
 }
 
 output "ip" {

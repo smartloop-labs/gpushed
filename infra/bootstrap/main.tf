@@ -10,8 +10,8 @@
 #   terraform apply -var project_id=<our-project>
 #
 # Creates: the shared VPC boxes live in, an SSH firewall rule, the provisioner
-# service account, and Workload Identity Federation so the provision workflow
-# can act as that account without any stored key.
+# and image-builder service accounts, and Workload Identity Federation so the
+# provision and image workflows can act as them without any stored key.
 
 terraform {
   required_version = ">= 1.6.0"
@@ -167,6 +167,29 @@ resource "google_service_account_iam_member" "github" {
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_repo}"
 }
 
+# ---------------------------------------------------------------- image builder identity
+
+# image.yml (image/build.sh): runs a throwaway builder VM and saves its disk
+# as a gpushed-cuda image. Separate from the provisioner, which only needs to
+# read images, so a box workflow can never replace the image.
+resource "google_service_account" "image_builder" {
+  account_id   = "gpushed-image-builder"
+  display_name = "gpushed image builder (GitHub Actions)"
+}
+
+resource "google_project_iam_member" "image_builder" {
+  for_each = toset(["roles/compute.instanceAdmin.v1", "roles/compute.storageAdmin"])
+  project  = var.project_id
+  role     = each.value
+  member   = "serviceAccount:${google_service_account.image_builder.email}"
+}
+
+resource "google_service_account_iam_member" "github_image_builder" {
+  service_account_id = google_service_account.image_builder.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_repo}"
+}
+
 # ---------------------------------------------------------------- outputs (GitHub Actions variables)
 
 output "GCP_PROJECT" {
@@ -176,6 +199,10 @@ output "GCP_PROJECT" {
 
 output "GCP_SERVICE_ACCOUNT" {
   value = google_service_account.provisioner.email
+}
+
+output "GCP_IMAGE_SERVICE_ACCOUNT" {
+  value = google_service_account.image_builder.email
 }
 
 output "GCP_WORKLOAD_IDENTITY_PROVIDER" {

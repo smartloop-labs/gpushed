@@ -149,13 +149,14 @@ wait_for_ssh() {
   die "The box is running but SSH isn't answering yet. Try: gpushed ssh"
 }
 
-# Stream the NVIDIA/CUDA setup log until it finishes (it runs on first boot).
+# Stream the first-boot setup log until it finishes: a quick GPU check on the
+# prebuilt image, or the full driver/CUDA install on stock Ubuntu.
 follow_setup() {
   if ssh "${SSH_OPTS[@]}" "$BOX_USER@$BOX_IP" test -f /var/log/provisioning-completed; then
     return 0
   fi
   say ""
-  say "📦 Installing the NVIDIA driver and CUDA (10-15 minutes on first boot). Ctrl-C stops watching; setup carries on."
+  say "📦 Finishing setup: usually under a minute with the prebuilt image (10-15 if it has to install the driver and CUDA). Ctrl-C stops watching; setup carries on."
   say "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   ssh "${SSH_OPTS[@]}" "$BOX_USER@$BOX_IP" \
     'sudo bash -c "while [ ! -f /var/log/provisioning-completed ]; do sleep 5; done" & w=$!; sudo tail -n +1 -F --pid=$w /var/log/setup-script.log 2>/dev/null' || true
