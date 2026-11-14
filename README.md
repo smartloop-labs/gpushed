@@ -1,201 +1,223 @@
 # gpushed
 
-Your own GPU shed: spin up an NVIDIA GPU box on Google Cloud with one command, with no
-waitlist and no day-long queue for capacity. You get a clean Ubuntu 22.04 VM with
-the NVIDIA driver and CUDA installed, an SSH key, and a static IP. Tear it
-down when you're done so you only pay for the hours you use.
+> **macOS only:** Macs with Apple silicon on macOS 26+, using Apple's native
+> `container` runtime. Linux, Windows and Intel Macs aren't supported.
 
-Install:
-
-```bash
-curl -fsSL gpushed.smartloop.ai | bash
-```
-
-Then:
+GPU boxes on demand, from your Mac. Sign in with your email, add credit, and
+get an NVIDIA GPU box (Ubuntu 22.04, driver + CUDA) in a few minutes. There's no
+cloud account, quota request or Terraform to set up. You pay per second from a
+prepaid balance and delete the box when you're done.
 
 ```bash
-gpushed up       # create the VM and install the NVIDIA driver + CUDA
-gpushed ssh      # connect
-nvidia-smi       # on the box
-gpushed down     # destroy everything
+curl -fsSL gpushed.smartloop.ai/install.sh | bash   # installs, then runs gpushed init
+
+gpushed init         # installs Apple's container runtime, signs you in by email
+gpushed topup        # add credit with Stripe (minimum $10)
+gpushed up           # create your box (default: 1x L4 24 GB)
+gpushed ssh          # connect; try nvidia-smi
+gpushed down         # delete it
 ```
 
-## What you get
+## Requirements
 
-- A GCE VM (default `a2-highgpu-1g`: 1× A100 40 GB) on Ubuntu 22.04
-- NVIDIA driver 535 (server) and CUDA Toolkit 12.6. Nothing else: no Python
-  stack, no frameworks, so the box stays yours to set up
-- A few runtime libraries local-inference apps commonly need
-  (`libvulkan1`, `libgomp1`, `libfontconfig1`)
-- Its own VPC, subnet, SSH-only firewall rule and static external IP
-- Optionally, a DNS A record in a Cloud DNS zone you already have
+- A Mac with **Apple silicon** on **macOS 26** or later
+- Apple's native container runtime, which `gpushed init` sets up for you: it
+  downloads the latest signed installer from
+  <https://github.com/apple/container/releases>, checks it's signed by Apple
+  (Developer ID "Apple Inc. - Containerization") and notarized, installs it
+  (asks for your password once), and starts it
 
-## Prerequisites
+The gpushed client runs inside an Apple container, so nothing else needs to be
+installed. `init` also downloads the client image from our release bucket.
 
-- A GCP project with billing enabled and **GPU quota** in your region
-  (IAM & Admin → Quotas → filter for the GPU, e.g. `NVIDIA_A100_GPUS`)
-- [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.0.1
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install), authenticated:
-  ```bash
-  gcloud auth application-default login
-  ```
-
-## Install
+## Plans and pricing
 
 ```bash
-curl -fsSL gpushed.smartloop.ai | bash
+gpushed plans
 ```
 
-`gpushed.smartloop.ai` serves the same `install.sh` that's attached to each
-[release](https://github.com/smartloop-labs/gpushed/releases); you can also run
-it straight from there:
-`curl -fsSL https://github.com/smartloop-labs/gpushed/releases/latest/download/install.sh | bash`.
+| Plan | GPU | Machine | Price / hour |
+|---|---|---|---|
+| `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
+| `l4` (default) | 1x L4 24 GB | g2-standard-4 | $0.88 |
+| `a100` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
+| `a100-80` | 1x A100 80 GB | a2-ultragpu-1g | $6.12 |
 
-The installer downloads the latest release into `~/.gpushed`, verifies its SHA-256
-checksum and links the `gpushed` command into `~/.local/bin`. Your SSH key,
-config and Terraform state also live in `~/.gpushed`, and survive upgrades.
+Prices are GCP's on-demand cost of the machine, its 100 GB SSD and IP, plus
+20%. A box is billed per second from when it's created until it's deleted. A
+stopped box costs only its disk (about $0.03/hour).
 
-| Variable | Description | Default |
-|---|---|---|
-| `GPUSHED_VERSION` | Release tag to install, e.g. `v0.1.0` | latest |
-| `GPUSHED_HOME` | Install directory (also holds key, config, state) | `~/.gpushed` |
-| `GPUSHED_BIN_DIR` | Where the `gpushed` command is linked | `~/.local/bin` |
+**Balance.** Credit is prepaid: the minimum top-up is $10, and you can top up
+any amount above that at any time with `gpushed topup 25`. To create or start a
+box you need at least one hour of its price in your balance.
 
-Upgrade with `gpushed update`. To uninstall, run `gpushed down` first, then
-`rm -rf ~/.gpushed ~/.local/bin/gpushed`.
-
-Prefer a checkout? `git clone https://github.com/smartloop-labs/gpushed.git`
-and use `./box.sh` in place of `gpushed`; everything works the same.
-
-## Quick start
-
-```bash
-gpushed init      # generates an SSH key and asks for your GCP project
-gpushed config    # optional: change region, zone or GPU type
-gpushed up
-```
-
-The box is billed to `project_id`, so it must be set before anything is
-created. `init` and `up` ask for it, defaulting to gcloud's current project
-(press Enter to accept). Run without a terminal, they use gcloud's current
-project, or stop if there is none.
-
-`up` creates the infrastructure, waits for SSH, then runs the setup script
-and streams its output. First boot takes about 10–15 minutes, mostly
-downloading the driver and CUDA. When it finishes:
-
-```bash
-gpushed ssh
-nvidia-smi
-```
-
-If `nvidia-smi` can't talk to the driver right after setup, `sudo reboot` once.
-
-**Out of capacity?** GPUs often sell out in a zone. When GCP reports a
-stockout, `up` retries in the region's other zones that offer your machine
-type (and GPU), and saves the zone that works to your config.
+**Running out.** When your balance falls below $2 you get an email. When it's
+nearly used up, your box is **stopped** (its disk is kept) and you get another
+email. Top up and run `gpushed start` to carry on. A box that stays stopped
+with no credit for 24 hours is deleted.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `gpushed init` | Generate an SSH key pair and `config/prod.tfvars` from the example |
-| `gpushed up` | Create the VM and provision it |
-| `gpushed setup` | Re-run provisioning on an existing VM |
-| `gpushed ssh` | SSH into the VM |
-| `gpushed status` | Show the VM's Terraform outputs |
-| `gpushed down` | Destroy the VM and everything created with it |
-| `gpushed config` | Open `config/prod.tfvars` in `$EDITOR` |
-| `gpushed version` | Show the installed version |
+| `gpushed init` | Install Apple's container runtime, fetch the client, sign in |
+| `gpushed login [email]` | Sign in with a link sent to your email |
+| `gpushed logout` | Sign out on this Mac |
+| `gpushed balance` | Show your balance |
+| `gpushed topup [usd]` | Add credit (opens Stripe Checkout; minimum $10) |
+| `gpushed history` | Recent charges and top-ups |
+| `gpushed plans` | GPUs available and their prices |
+| `gpushed up [plan]` | Create your box and watch it install the driver + CUDA |
+| `gpushed status` | Show your box |
+| `gpushed ssh [cmd]` | SSH into the box, or run a command on it |
+| `gpushed stop` / `start` | Pause and resume (disk kept) |
+| `gpushed down` | Delete the box and its disk |
 | `gpushed update` | Upgrade to the latest release |
+| `gpushed uninstall` | Remove gpushed from this Mac |
 
-Each SSH key gets its own Terraform workspace, so teammates with different
-keys can each run their own box from the same checkout.
+Your API token and the box's SSH key are in `~/.gpushed/state`. To SSH from
+outside gpushed: `ssh -i ~/.gpushed/state/box_ssh_key boxuser@<ip>` (the IP is
+in `gpushed status`; it changes after a stop/start).
 
-## Configuration
+## What you get
 
-Settings live in `~/.gpushed/config/prod.tfvars` (or `config/prod.tfvars` in a checkout; gitignored). See
-[`terraform.tfvars.example`](terraform.tfvars.example).
+- An Ubuntu 22.04 VM with the NVIDIA driver 535 (server) and CUDA Toolkit 12.6;
+  nothing else, so the box is yours to set up
+- A 100 GB SSD and a public IP; only SSH (port 22) is open
+- First boot takes 10–15 minutes, mostly installing the driver and CUDA.
+  `gpushed up` streams the progress. If `nvidia-smi` can't talk to the driver
+  right after setup, `sudo reboot` once.
 
-| Variable | Description | Default |
-|---|---|---|
-| `project_id` | GCP project ID | required |
-| `region` | GCP region | required |
-| `zone` | GCP zone; must offer your GPU | `us-west1-b` |
-| `vpc_cidr_block` | CIDR for the box's VPC | required |
-| `machine_type` | GCE machine type | `e2-medium` |
-| `gpu_type` | Accelerator to attach (non-A2/A3 machines) | `nvidia-tesla-a100` |
-| `gpu_count` | GPUs to attach; `0` for A2/A3, which have them built in | `1` |
-| `admin_username` | SSH user (avoid `admin`, `root`, `ubuntu`) | `boxuser` |
-| `admin_ssh_keys` | `[{ username, public_key }]` | required |
-| `dns_zone_name` | Existing Cloud DNS zone, or `""` | `""` |
-| `dns_domain` | Domain for that zone, with trailing dot | `""` |
-| `vm_hostname` | Host label in the zone | `box` |
+Boxes run in smartloop's GCP project. They have no Google credentials and
+can't reach each other.
 
-**Other GPUs.** For a cheaper box, attach a GPU to a general-purpose machine:
+---
 
-```hcl
-machine_type = "n1-standard-8"
-gpu_type     = "nvidia-tesla-t4"
-gpu_count    = 1
+## How it works
+
+```
+ Mac ─ gpushed ─► Apple container (gpushed-cli image, from R2; no cloud keys)
+                        │ API token (per user)
+                        ▼
+              gpushed API  (Cloudflare Worker + D1)
+              sign-in · balances · Stripe · metering cron (every 5 min)
+                        │ workflow_dispatch (box ID only)
+                        ▼
+              GitHub Actions: provision.yml
+              pulls the provisioner image (Terraform + gcloud) from R2 and
+              injects GCP credentials (Workload Identity) + R2 keys at run time
+                        │ terraform (state in R2)
+                        ▼
+              GCE GPU VM in smartloop's GCP project
 ```
 
-Check which zones offer which GPUs:
-<https://cloud.google.com/compute/docs/gpus/gpu-regions-zones>.
+| Path | What it is |
+|---|---|
+| [`gpushed`](gpushed), [`install.sh`](install.sh) | Mac command and installer |
+| [`client/`](client) | Client image (`Containerfile`) and the CLI that runs in it |
+| [`api/`](api) | Cloudflare Worker: auth, billing, Stripe webhook, metering, dispatch |
+| [`provisioner/`](provisioner) | Provisioner image, entrypoint and the box's Terraform |
+| [`infra/bootstrap/`](infra/bootstrap) | One-time GCP setup: network, service account, Workload Identity |
+| [`.github/workflows/`](.github/workflows) | `provision.yml`, `release.yml`, `ci.yml` (tests + API deploy) |
 
-**DNS.** With `dns_zone_name = ""` the box is reachable by IP (and the
-`vm_dns_name` output gives a `nip.io` name). With an existing Cloud DNS zone,
-it gets `<vm_hostname>.<dns_domain>`.
+**Why the keys aren't in the client image.** The client runs on users' Macs, so
+anything inside it can be read by them. A cloud key there would let anyone
+create VMs in our project without paying. Instead, the client holds only a
+per-user API token; the API checks the balance before it asks GitHub Actions
+(which has the cloud access) to provision anything, and metering runs on the
+server.
 
-**State.** Terraform state is local by default. To share it across a team,
-uncomment the `gcs` backend in [`provider.tf`](provider.tf) and point it at a
-bucket you own.
+**Billing.** Money is stored in micro-dollars in D1. Every change is a ledger
+row with a unique ref, so Stripe webhooks and metering runs are idempotent.
+A box is billed from the moment Terraform reports it created, at the plan's
+price while running and the disk price while stopped.
 
-## How provisioning works
+## Operating it
 
-`main.tf` passes [`scripts/startup-wrapper.sh`](scripts/startup-wrapper.sh)
-(which embeds [`scripts/setup.sh`](scripts/setup.sh)) as the VM's startup
-script. Both the boot-time startup service and `gpushed up` run it; a lock
-makes the second run wait and then exit, so they never fight over apt.
+### One-time setup
 
-Setup makes apt use IPv4 only (GCE VMs have no IPv6 route) and gives it short
-timeouts with retries, since Ubuntu's mirrors can stall from GCE.
+1. **GCP** (in our project; needs GPU quota in the region):
+   ```bash
+   cd infra/bootstrap
+   terraform init && terraform apply -var project_id=<project>
+   ```
+   Note the outputs for step 4.
 
-Logs and markers on the VM:
+2. **Cloudflare R2**: create two buckets:
+   ```bash
+   npx wrangler r2 bucket create gpushed-releases   # public, served at dl.gpushed.smartloop.ai
+   npx wrangler r2 bucket create gpushed-state      # private, Terraform state
+   npx wrangler r2 bucket domain add gpushed-releases --domain dl.gpushed.smartloop.ai --zone-id <zone>
+   ```
+   Create two R2 API tokens: one with write access to `gpushed-releases`
+   (release workflow), one with read/write on `gpushed-state` (provision workflow).
+   Optional: a lifecycle rule to expire old releases' images after 30 days.
+
+3. **API** (Cloudflare Worker + D1):
+   ```bash
+   cd api && npm ci
+   npx wrangler d1 create gpushed          # put the id in wrangler.toml
+   npx wrangler d1 migrations apply gpushed --remote
+   npx wrangler secret put STRIPE_SECRET_KEY
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://api.gpushed.smartloop.ai/v1/stripe/webhook,
+                                                   # events: checkout.session.completed, checkout.session.async_payment_succeeded
+   npx wrangler secret put RESEND_API_KEY          # sign-in and balance emails
+   npx wrangler secret put GITHUB_TOKEN            # fine-grained PAT: Actions read/write on this repo
+   npx wrangler secret put PROVISIONER_SECRET      # random; same value as the GitHub secret below
+   npx wrangler deploy
+   ```
+   Pricing knobs (`PREMIUM_PCT`, `MIN_TOPUP_USD`, `LOW_BALANCE_USD`,
+   `STOPPED_GRACE_HOURS`, `REGION`) are in [`api/wrangler.toml`](api/wrangler.toml);
+   GCP list prices per plan are in [`api/src/pricing.ts`](api/src/pricing.ts).
+
+4. **GitHub**: create an environment named `production`, limited to `main`, with:
+
+   | Kind | Name | Value |
+   |---|---|---|
+   | variable | `GCP_PROJECT`, `GCP_SUBNETWORK`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | bootstrap outputs |
+   | variable | `GPUSHED_API` | `https://api.gpushed.smartloop.ai` |
+   | variable | `GPUSHED_DL` | `https://dl.gpushed.smartloop.ai` |
+   | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+   | variable | `R2_STATE_BUCKET` / `R2_RELEASE_BUCKET` | `gpushed-state` / `gpushed-releases` |
+   | variable | `CLOUDFLARE_ACCOUNT_ID` | your account ID |
+   | secret | `PROVISIONER_SECRET` | same as the Worker's |
+   | secret | `R2_STATE_ACCESS_KEY_ID`, `R2_STATE_SECRET_ACCESS_KEY` | state bucket token |
+   | secret | `R2_RELEASE_ACCESS_KEY_ID`, `R2_RELEASE_SECRET_ACCESS_KEY` | release bucket token |
+   | secret | `CLOUDFLARE_API_TOKEN` | Workers + D1 edit, for API deploys |
+
+   The release workflow's secrets and `R2_*` variables must be available to it
+   too (repository level, or move its job into the environment).
+
+   This repo is public, so anyone can read workflow logs. `provision.sh` keeps
+   Terraform output out of the log and masks IPs, but running `provision.yml`
+   from a private repo (set `GITHUB_REPO` in `wrangler.toml` and
+   `github_repo` in the bootstrap) keeps box metadata fully private.
+
+### Releasing
 
 ```bash
-sudo cat /var/log/setup-script.log       # full setup output
-cat /var/log/provisioning-completed      # present once setup has finished
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
-Don't run `apt` yourself until `provisioning-completed` exists; setup holds
-the apt lock until then.
+The release workflow builds the CLI package, the client image (linux/arm64,
+OCI archive for `container image load`) and the provisioner image
+(linux/amd64), uploads them to R2 under `v0.2.0/`, then moves `latest`.
 
-## Costs
+### Local development
 
-GPU VMs are expensive: an `a2-highgpu-1g` runs roughly $3–4/hour on demand.
-The VM bills while it exists, even when idle. Run `gpushed down` when you're
-done.
+```bash
+cd api && npm ci
+npx wrangler d1 migrations apply gpushed --local --env dev
+npx wrangler dev --env dev --test-scheduled --ip 0.0.0.0   # emails and dispatches are logged, not sent
+npm test
 
-## Security notes
+# In another terminal, from a checkout (builds the client image locally). Use
+# the Mac's address as seen from containers (the vmnet gateway, usually 192.168.64.1):
+GPUSHED_API=http://192.168.64.1:8787 ./gpushed login you@example.com
+```
 
-- SSH (port 22) is open to `0.0.0.0/0`. Narrow `source_ranges` in `main.tf`
-  if you have a fixed IP.
-- Secure Boot is off so the NVIDIA kernel module loads; vTPM and integrity
-  monitoring stay on.
-- Never commit `box_ssh_key`, `config/*.tfvars` or `*.tfstate`; `.gitignore`
-  already excludes them.
+`curl localhost:8787/__scheduled` runs the metering cron once.
 
 ## License
 
 [Apache-2.0](LICENSE)
-
-## Releasing
-
-Push a version tag and the [Release workflow](.github/workflows/release.yml)
-builds `gpushed.tar.gz`, its `.sha256` and `install.sh`, smoke-tests the
-installer, and publishes them as a GitHub release:
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```

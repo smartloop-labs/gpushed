@@ -1,0 +1,54 @@
+name = "gpushed-api"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# Custom domain for the API (the CLI's default GPUSHED_API).
+routes = [{ pattern = "api.gpushed.smartloop.ai", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gpushed"
+database_id = "REPLACE_WITH_D1_DATABASE_ID" # wrangler d1 create gpushed
+migrations_dir = "migrations"
+
+# Meter usage and enforce balances every 5 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+PUBLIC_URL = "https://api.gpushed.smartloop.ai"
+REGION = "us-central1"
+PREMIUM_PCT = "20"
+MIN_TOPUP_USD = "10"
+LOW_BALANCE_USD = "2"
+STOPPED_GRACE_HOURS = "24"
+GITHUB_REPO = "smartloop-labs/gpushed"
+GITHUB_WORKFLOW = "provision.yml"
+GITHUB_REF = "main"
+EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
+
+# Secrets, set with `wrangler secret put NAME`:
+#   STRIPE_SECRET_KEY      Stripe secret key (sk_live_... / sk_test_...)
+#   STRIPE_WEBHOOK_SECRET  signing secret of the endpoint .../v1/stripe/webhook
+#   RESEND_API_KEY         sends sign-in links and balance warnings
+#   GITHUB_TOKEN           fine-grained PAT, Actions: read & write on GITHUB_REPO
+#   PROVISIONER_SECRET     random string, also stored as a GitHub Actions secret
+
+[env.dev]
+name = "gpushed-api-dev"
+routes = []
+d1_databases = [{ binding = "DB", database_name = "gpushed", database_id = "local", migrations_dir = "migrations" }]
+triggers = { crons = ["*/5 * * * *"] }
+[env.dev.vars]
+PUBLIC_URL = "http://localhost:8787"
+REGION = "us-central1"
+PREMIUM_PCT = "20"
+MIN_TOPUP_USD = "10"
+LOW_BALANCE_USD = "2"
+STOPPED_GRACE_HOURS = "24"
+GITHUB_REPO = "smartloop-labs/gpushed"
+GITHUB_WORKFLOW = "provision.yml"
+GITHUB_REF = "main"
+EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
+DEV = "1"
+PROVISIONER_SECRET = "dev-provisioner-secret"

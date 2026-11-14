@@ -1,0 +1,217 @@
+#!/bin/bash
+#
+# gpushed: GPU boxes on demand, from your Mac.
+#
+# This wrapper runs the gpushed client inside Apple's native `container`
+# runtime (macOS 26+, Apple silicon); `gpushed init` downloads and installs
+# that runtime from Apple's GitHub releases. Nothing else to install: no
+# Terraform, no gcloud, no cloud account. The client image comes from our
+# Cloudflare R2 bucket and holds no cloud credentials; your API token and SSH
+# key live in ~/.gpushed/state, mounted into the container.
+
+set -euo pipefail
+
+GPUSHED_DL="${GPUSHED_DL:-https://dl.gpushed.smartloop.ai}"
+INSTALLER_URL="${GPUSHED_INSTALLER_URL:-https://gpushed.smartloop.ai/install.sh}"
+
+# Find the install directory, following symlinks (~/.local/bin/gpushed -> ~/.gpushed/gpushed).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  LINK_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$LINK_DIR/$SOURCE"
+done
+BOX_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+STATE="$BOX_DIR/state"
+
+if [ -f "$BOX_DIR/VERSION" ]; then
+  VERSION="$(cat "$BOX_DIR/VERSION")"
+else
+  VERSION="dev" # a git checkout: build the client image from ./client
+fi
+IMAGE="gpushed-cli:$VERSION"
+
+say() { printf '%s\n' "$*"; }
+die() { printf '❌ %s\n' "$*" >&2; exit 1; }
+
+# Apple's container runtime: signed installer from its GitHub releases. We
+# only install a package signed with Apple's Containerization Developer ID
+# and notarized by Apple.
+CONTAINER_RELEASES="https://api.github.com/repos/apple/container/releases/latest"
+CONTAINER_SIGNER="Developer ID Installer: Apple Inc. - Containerization (UPBK2H6LZM)"
+export PATH="/usr/local/bin:$PATH" # where the runtime installs `container`
+
+check_platform() {
+  [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] \
+    || die "gpushed runs on Macs with Apple silicon (it uses Apple's native container runtime)."
+  local major
+  major="$(sw_vers -productVersion | cut -d. -f1)"
+  [ "$major" -ge 26 ] || die "gpushed needs macOS 26 or later for Apple's container runtime (you have $(sw_vers -productVersion))."
+}
+
+install_container_runtime() {
+  local url tmp pkg sig
+  say "🍏 gpushed runs on Apple's container runtime. Downloading it from github.com/apple/container..."
+  url="$(curl -fsSL "$CONTAINER_RELEASES" \
+    | grep -o '"browser_download_url": *"[^"]*-installer-signed\.pkg"' \
+    | sed 's/.*"\(https:[^"]*\)"$/\1/' | head -1)" || true
+  [ -n "$url" ] || die "Could not find the latest installer. Get it from https://github.com/apple/container/releases"
+  tmp="$(mktemp -d)"
+  pkg="$tmp/$(basename "$url")"
+  curl -fL --progress-bar -o "$pkg" "$url" || { rm -rf "$tmp"; die "Download failed: $url"; }
+
+  sig="$(pkgutil --check-signature "$pkg" 2>&1 || true)"
+  if ! grep -qF "$CONTAINER_SIGNER" <<<"$sig" \
+     || ! grep -q "Notarization: trusted by the Apple notary service" <<<"$sig" \
+     || ! spctl --assess --type install "$pkg" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    die "The downloaded installer isn't signed and notarized by Apple; not installing it."
+  fi
+  say "   ✅ Signed by Apple and notarized ($(basename "$pkg"))"
+  say "🔐 Installing it needs your Mac password (sudo installer)."
+  sudo installer -pkg "$pkg" -target / >/dev/null || { rm -rf "$tmp"; die "Installing $(basename "$pkg") failed."; }
+  rm -rf "$tmp"
+  command -v container >/dev/null 2>&1 || die "Installed, but the container command wasn't found in /usr/local/bin."
+  say "   ✅ Installed $(container --version 2>/dev/null | head -1)"
+}
+
+start_container_services() {
+  if ! container system status >/dev/null 2>&1; then
+    say "🍏 Starting Apple's container services (the first start downloads a small Linux kernel)..."
+    container system start --enable-kernel-install >/dev/null \
+      || die "Could not start container services. Try: container system start"
+  fi
+  # Services can be running without a kernel (e.g. its install prompt was
+  # declined); containers can't start until one is set.
+  local app_root
+  app_root="$(container system status 2>/dev/null | awk '$1 == "paths.appRoot" {sub(/^[^ ]+ +/, ""); print}')"
+  if [ -n "$app_root" ] && [ ! -e "${app_root%/}/kernels/default.kernel-arm64" ]; then
+    say "🐧 Installing the Linux kernel Apple's containers run on..."
+    container system kernel set --recommended >/dev/null \
+      || die "Could not install the kernel. Try: container system kernel set --recommended"
+  fi
+}
+
+# Everything a command needs before it can run the client. The runtime is
+# installed by `gpushed init`, or here when we can ask for a password.
+preflight() {
+  check_platform
+  if ! command -v container >/dev/null 2>&1; then
+    if [ -t 0 ]; then
+      install_container_runtime
+    else
+      die "Apple's container runtime isn't installed. Run: gpushed init"
+    fi
+  fi
+  start_container_services
+}
+
+sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+build_image() {
+  local ctx="$BOX_DIR/client"
+  [ -f "$ctx/Containerfile" ] || die "Client image source not found in $ctx"
+  say "🔨 Building the gpushed client image (first time only, about a minute)..."
+  local log
+  log="$(mktemp)"
+  if ! container build --build-arg VERSION="$VERSION" --tag "$IMAGE" --file "$ctx/Containerfile" "$ctx" >"$log" 2>&1; then
+    tail -30 "$log"
+    rm -f "$log"
+    die "Building the client image failed."
+  fi
+  rm -f "$log"
+}
+
+# Load this version's client image from R2 (once), verifying its checksum.
+ensure_image() {
+  container image inspect "$IMAGE" >/dev/null 2>&1 && return 0
+  if [ "$VERSION" = dev ]; then
+    build_image
+    return 0
+  fi
+  local tmp file="gpushed-cli-arm64.oci.tar"
+  tmp="$(mktemp -d)"
+  say "⬇️  Downloading the gpushed client image ($VERSION)..."
+  if curl -fsSL "$GPUSHED_DL/$VERSION/$file" -o "$tmp/$file" \
+     && curl -fsSL "$GPUSHED_DL/$VERSION/$file.sha256" -o "$tmp/$file.sha256" \
+     && [ "$(awk '{print $1}' "$tmp/$file.sha256")" = "$(sha256_of "$tmp/$file")" ]; then
+    container image load --input "$tmp/$file" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$tmp"
+  # Fall back to building it from the copy of ./client shipped in the package.
+  container image inspect "$IMAGE" >/dev/null 2>&1 || build_image
+}
+
+run_client() {
+  mkdir -p "$STATE"
+  chmod 700 "$STATE"
+  rm -f "$STATE/.open-url"
+
+  # The client can't open a browser from inside the container; it writes the
+  # URL (sign-up, Stripe checkout) to a file that we open on the Mac.
+  (
+    while kill -0 $$ 2>/dev/null; do
+      if [ -s "$STATE/.open-url" ]; then
+        open "$(head -1 "$STATE/.open-url")" 2>/dev/null || true
+        rm -f "$STATE/.open-url"
+      fi
+      sleep 0.5
+    done
+  ) &
+  local watcher=$!
+
+  local flags=(--rm --progress none -v "$STATE:/state")
+  if [ -t 0 ] && [ -t 1 ]; then flags+=(-it); else flags+=(-i); fi
+  [ -n "${GPUSHED_API:-}" ] && flags+=(-e "GPUSHED_API=$GPUSHED_API")
+  [ -n "${TERM:-}" ] && flags+=(-e "TERM=$TERM")
+
+  local status=0
+  container run "${flags[@]}" "$IMAGE" gpushed-cli "$@" || status=$?
+  sleep 0.6 # let the watcher open a URL written just before exit
+  kill "$watcher" 2>/dev/null || true
+  return $status
+}
+
+case "${1:-help}" in
+  init)
+    # First-time setup: Apple's container runtime, the client image, sign-in.
+    check_platform
+    if command -v container >/dev/null 2>&1; then
+      say "🍏 Apple's container runtime is installed ($(container --version 2>/dev/null | head -1))."
+    else
+      install_container_runtime
+    fi
+    start_container_services
+    ensure_image
+    say "✅ Ready."
+    say ""
+    if [ -s "$STATE/token" ]; then
+      run_client balance
+    else
+      run_client login "${@:2}"
+    fi
+    ;;
+  version|--version|-v)
+    say "$VERSION"
+    ;;
+  update)
+    [ "$VERSION" != dev ] || die "This is a git checkout; update it with: git -C \"$BOX_DIR\" pull"
+    say "⬆️  Updating gpushed (currently $VERSION)..."
+    curl -fsSL "$INSTALLER_URL" | GPUSHED_HOME="$BOX_DIR" bash
+    ;;
+  uninstall)
+    say "This removes gpushed from this Mac. It does not delete a box you have running;"
+    say "run 'gpushed down' first if you have one."
+    read -r -p "Uninstall? (y/N) " reply
+    [[ $reply =~ ^[Yy]$ ]] || exit 0
+    command -v container >/dev/null 2>&1 && container image list -q 2>/dev/null | grep '^gpushed-cli' | xargs container image delete >/dev/null 2>&1 || true
+    rm -f "${GPUSHED_BIN_DIR:-$HOME/.local/bin}/gpushed"
+    rm -rf "$BOX_DIR"
+    say "✅ Uninstalled."
+    ;;
+  *)
+    preflight
+    ensure_image
+    run_client "$@"
+    ;;
+esac

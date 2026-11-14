@@ -1,0 +1,88 @@
+# Creates, stops, starts and deletes users' GPU boxes. Dispatched by the
+# gpushed API (never by hand in normal operation) with only a box ID; the
+# job fetches the box's spec from the API itself.
+#
+# Keys never live in an image: this job pulls the provisioner image (Terraform
+# + gcloud) from R2, then injects short-lived GCP credentials (Workload
+# Identity Federation, no stored key), the R2 state keys and the API secret
+# into the container when it runs it.
+name: Provision
+
+run-name: "${{ inputs.action }} ${{ inputs.box_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [up, start, stop, down]
+        required: true
+      box_id:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # for Workload Identity Federation
+
+# One run at a time per box, in order (e.g. a `down` waits for an `up`).
+concurrency:
+  group: box-${{ inputs.box_id }}
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production # holds the secrets below; restrict it to main
+    env:
+      ACTION: ${{ inputs.action }}
+      BOX_ID: ${{ inputs.box_id }}
+      GPUSHED_DL: ${{ vars.GPUSHED_DL }}
+    steps:
+      - name: Check inputs
+        run: '[[ $BOX_ID =~ ^b[a-z0-9]{11}$ ]] || { echo "invalid box id"; exit 1; }'
+
+      - uses: actions/checkout@v5
+
+      - name: Load provisioner image from R2
+        run: |
+          set -euo pipefail
+          if v=$(curl -fsSL "$GPUSHED_DL/latest") \
+             && curl -fsSL "$GPUSHED_DL/$v/gpushed-provisioner-amd64.tar.gz" -o img.tar.gz \
+             && curl -fsSL "$GPUSHED_DL/$v/gpushed-provisioner-amd64.tar.gz.sha256" -o img.sha256 \
+             && echo "$(awk '{print $1}' img.sha256)  img.tar.gz" | sha256sum -c --quiet -; then
+            docker load -q -i img.tar.gz
+            echo "IMAGE=gpushed-provisioner:$v" >> "$GITHUB_ENV"
+          else
+            # No release in R2 yet (first deploy): build from this checkout.
+            echo "::warning::provisioner image not found in R2; building it"
+            docker build -q -t gpushed-provisioner:local -f provisioner/Containerfile provisioner
+            echo "IMAGE=gpushed-provisioner:local" >> "$GITHUB_ENV"
+          fi
+
+      - id: gcp
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+
+      - name: Run provisioner
+        env:
+          GPUSHED_API: ${{ vars.GPUSHED_API }}
+          PROVISIONER_SECRET: ${{ secrets.PROVISIONER_SECRET }}
+          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          GCP_SUBNETWORK: ${{ vars.GCP_SUBNETWORK }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_STATE_BUCKET: ${{ vars.R2_STATE_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STATE_SECRET_ACCESS_KEY }}
+          GCP_CREDS: ${{ steps.gcp.outputs.credentials_file_path }}
+        run: |
+          docker run --rm \
+            -v "$GCP_CREDS:/run/secrets/gcp.json:ro" \
+            -e GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp.json \
+            -e GPUSHED_API -e PROVISIONER_SECRET -e GCP_PROJECT -e GCP_SUBNETWORK \
+            -e R2_ENDPOINT -e R2_STATE_BUCKET -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+            "$IMAGE" "$ACTION" "$BOX_ID"

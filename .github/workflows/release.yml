@@ -1,9 +1,20 @@
+# On a version tag: build the CLI package, the Apple-container client image
+# (linux/arm64) and the provisioner image (linux/amd64), and publish them to
+# Cloudflare R2, served at vars.GPUSHED_DL (e.g. https://dl.gpushed.smartloop.ai):
+#
+#   latest                                     -> "v1.2.3"
+#   v1.2.3/gpushed.tar.gz(.sha256)             CLI package (install.sh fetches it)
+#   v1.2.3/gpushed-cli-arm64.oci.tar(.sha256)  client image, `container image load`
+#   v1.2.3/gpushed-provisioner-amd64.tar.gz(.sha256)  used by provision.yml
+#
+# Also publishes the website (site/) and install.sh to https://gpushed.smartloop.ai
+# via GitHub Pages; the install command is curl -fsSL gpushed.smartloop.ai/install.sh | bash
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: # re-publish the installer site without a release
+  workflow_dispatch: # re-publish the website and installer without a release
 
 permissions:
   contents: write
@@ -12,39 +23,60 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    env:
+      V: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build package
+      - name: Build CLI package
         run: |
-          mkdir -p dist build
-          git archive --format=tar --prefix=gpushed/ HEAD | tar -x -C build
-          echo "${GITHUB_REF_NAME}" > build/gpushed/VERSION
-          tar -czf dist/gpushed.tar.gz -C build gpushed
-          (cd dist && sha256sum gpushed.tar.gz > gpushed.tar.gz.sha256)
-          cp install.sh dist/install.sh
+          mkdir -p dist build/gpushed
+          cp gpushed install.sh build/gpushed/
+          cp -R client build/gpushed/client
+          echo "$V" > build/gpushed/VERSION
+          tar -czf "dist/gpushed.tar.gz" -C build gpushed
           tar -tzf dist/gpushed.tar.gz
 
-      - name: Smoke test installer against the built package
+      - name: Build client image (Apple container, linux/arm64)
         run: |
-          python3 -m http.server 8000 --directory dist &
-          sleep 1
-          sed 's|local base="https://github.com/$repo/releases/download/$version"|local base="http://localhost:8000"|' install.sh > /tmp/install-local.sh
-          grep -q 'base="http://localhost:8000"' /tmp/install-local.sh
-          GPUSHED_VERSION="${GITHUB_REF_NAME}" GPUSHED_HOME=/tmp/gp GPUSHED_BIN_DIR=/tmp/gpbin bash /tmp/install-local.sh
-          test "$(/tmp/gpbin/gpushed version)" = "${GITHUB_REF_NAME}"
+          docker buildx build --platform linux/arm64 --build-arg VERSION="$V" \
+            --output "type=oci,dest=dist/gpushed-cli-arm64.oci.tar,name=gpushed-cli:$V" client
 
-      - name: Create release
+      - name: Build provisioner image (linux/amd64)
+        run: |
+          docker buildx build --platform linux/amd64 --load -t "gpushed-provisioner:$V" -f provisioner/Containerfile provisioner
+          docker save "gpushed-provisioner:$V" | gzip > dist/gpushed-provisioner-amd64.tar.gz
+
+      - name: Smoke test
+        run: |
+          bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh
+          docker run --rm --entrypoint provision "gpushed-provisioner:$V" 2>&1 | grep -q usage
+          docker buildx build --platform linux/amd64 --load -t gpushed-cli:test client
+          docker run --rm gpushed-cli:test gpushed-cli version | grep -q .
+
+      - name: Checksums
+        run: cd dist && for f in *; do sha256sum "$f" > "$f.sha256"; done && ls -la
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_RELEASE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_RELEASE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          aws s3 cp dist/ "s3://$BUCKET/$V/" --recursive --endpoint-url "$R2_ENDPOINT"
+          # Point "latest" at this release only once all its files are there.
+          printf '%s' "$V" | aws s3 cp - "s3://$BUCKET/latest" --endpoint-url "$R2_ENDPOINT" \
+            --content-type text/plain --cache-control "max-age=60"
+
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/install.sh dist/gpushed.tar.gz dist/gpushed.tar.gz.sha256 \
-            --title "${GITHUB_REF_NAME}" --generate-notes
+        run: gh release create "$V" dist/gpushed.tar.gz dist/gpushed.tar.gz.sha256 install.sh --title "$V" --generate-notes
 
-  # Serve install.sh at https://gpushed.smartloop.ai so the install command is
-  #   curl -fsSL gpushed.smartloop.ai | bash
-  # It's the same script attached to the release; it installs from Releases.
   pages:
     needs: release
     if: ${{ !failure() && !cancelled() }}
@@ -57,17 +89,14 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
-
       - name: Build site
         run: |
-          mkdir -p site
-          cp install.sh site/index.html
-          cp install.sh site/install.sh
-          touch site/.nojekyll
-
+          mkdir -p _site
+          cp -R site/. _site/
+          cp install.sh _site/install.sh
+          touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: site
-
+          path: _site
       - id: deploy
         uses: actions/deploy-pages@v4
