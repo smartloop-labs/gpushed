@@ -3,7 +3,7 @@
 > **macOS only:** Macs with Apple silicon on macOS 26+, using Apple's native
 > `container` runtime. Linux, Windows and Intel Macs aren't supported.
 
-GPU boxes on demand, from your Mac. Sign in with your email, add credit, and
+Your dedicated NVIDIA GPU, from your Mac. Sign in with your email, add credit, and
 get an NVIDIA GPU box (Ubuntu 22.04, driver + CUDA) in a few minutes. There's no
 cloud account, quota request or Terraform to set up. You pay per second from a
 prepaid balance and delete the box when you're done.
