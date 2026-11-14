@@ -78,23 +78,67 @@ require_running_box() {
   [ "$BOX_STATUS" = running ] && [ -n "$BOX_IP" ] || die "Your box is $BOX_STATUS, not running."
 }
 
-# Poll the box until it reaches one of the given statuses (or failed).
+# What a box status means while we wait on it.
+describe_status() {
+  case "$1" in
+    pending) echo "creating your VM on Google Cloud (usually 1-3 minutes)" ;;
+    starting) echo "starting your VM" ;;
+    stopping) echo "stopping your VM" ;;
+    destroying) echo "deleting your VM and its disk" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# The line printed once a status is over.
+describe_done() {
+  case "$1" in
+    pending) echo "VM created" ;;
+    starting) echo "VM started" ;;
+    stopping) echo "VM stopped" ;;
+    destroying) echo "VM deleted" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Poll the box until it reaches one of the given statuses (or failed). On a
+# terminal, keep one live line with a spinner and the time spent so far.
 wait_for() {
-  local want=" $* " last="" b status started=$SECONDS
+  local want=" $* " last="" b status started=$SECONDS since=$SECONDS polled=-5 i=0 live=0
+  local spin=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  [ -t 1 ] && live=1
   while true; do
-    box_json; b=$API_BODY
-    if [ "$API_STATUS" = 404 ]; then status=destroyed; else status=$(jq -r .box.status <<<"$b"); fi
-    if [ "$status" != "$last" ]; then
-      say "   … $status"
-      last=$status
+    if [ $((SECONDS - polled)) -ge 5 ]; then
+      polled=$SECONDS
+      box_json; b=$API_BODY
+      if [ "$API_STATUS" = 404 ]; then status=destroyed; else status=$(jq -r .box.status <<<"$b"); fi
+      if [ "$status" != "$last" ]; then
+        if [ $live = 1 ] && [ -n "$last" ]; then
+          printf '\r\033[K   ✓ %s in %s\n' "$(describe_done "$last")" "$(elapsed $((SECONDS - since)))"
+        fi
+        [ $live = 1 ] || say "   … $(describe_status "$status")"
+        last=$status since=$SECONDS
+      fi
+      if [[ $want == *" $status "* ]]; then
+        [ $live = 1 ] && printf '\r\033[K'
+        return 0
+      fi
+      if [ "$status" = failed ]; then
+        [ $live = 1 ] && printf '\r\033[K'
+        die "$(jq -r '.box.error // "provisioning failed"' <<<"$b")"
+      fi
+      [ $((SECONDS - started)) -lt 1800 ] || { [ $live = 1 ] && echo; die "Timed out waiting; check later with: gpushed status"; }
     fi
-    [[ $want == *" $status "* ]] && return 0
-    if [ "$status" = failed ]; then
-      die "$(jq -r '.box.error // "provisioning failed"' <<<"$b")"
+    if [ $live = 1 ]; then
+      printf '\r\033[K   %s %s · %s' "${spin[i++ % 10]}" "$(describe_status "$status")" "$(elapsed $((SECONDS - since)))"
     fi
-    [ $((SECONDS - started)) -lt 1800 ] || die "Timed out waiting; check later with: gpushed status"
-    sleep 5
+    sleep 1
   done
+}
+
+# 75 -> "1m 15s"
+elapsed() {
+  local s=$1
+  if [ "$s" -ge 60 ]; then printf '%dm %02ds' $((s / 60)) $((s % 60)); else printf '%ds' "$s"; fi
 }
 
 wait_for_ssh() {
