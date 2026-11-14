@@ -69,7 +69,7 @@ with no credit for 24 hours is deleted.
 | Command | What it does |
 |---|---|
 | `gpushed init` | Install Apple's container runtime, fetch the client, sign in |
-| `gpushed login [email]` | Sign in with your smartloop account (emailed code); opens smartloop sign-up if you don't have one |
+| `gpushed login` | Sign in with your smartloop account in the browser (`--email [address]`: with an emailed code instead) |
 | `gpushed logout` | Sign out on this Mac |
 | `gpushed balance` | Show your balance |
 | `gpushed topup [usd]` | Add credit (opens Stripe Checkout; minimum $10) |
@@ -136,12 +136,16 @@ per-user API token; the API checks the balance before it asks GitHub Actions
 (which has the cloud access) to provision anything, and metering runs on the
 server.
 
-**Accounts.** gpushed users are smartloop accounts. `gpushed login` asks
-smartloop's API (`/v1/auth/otp/request` and `/verify`) for an emailed sign-in
-code; if the email has no account, it opens <https://app.smartloop.ai/signup>.
-The CLI then trades the smartloop access token for a long-lived gpushed token
-(`POST /auth/smartloop`, which checks it with smartloop's `/v1/users/me`). The
-gpushed user id is the smartloop user id.
+**Accounts.** gpushed users are smartloop accounts. `gpushed login` signs in
+in the browser: the CLI starts a sign-in (`POST /auth/cli/start`) and opens
+`app.smartloop.ai/gpushed/cli-login?code=XXXX-XXXX`; you sign in there if
+needed and approve the code shown in the terminal (`POST /auth/cli/approve`,
+with your smartloop session), and the CLI, polling `POST /auth/cli/poll` with
+its secret device code, gets a long-lived gpushed token. Sign-ins expire after
+10 minutes. `gpushed login --email` instead asks smartloop's API
+(`/v1/auth/otp/request` and `/verify`) for an emailed code and trades the
+smartloop access token for a gpushed token (`POST /auth/smartloop`, checked with
+smartloop's `/v1/users/me`). The gpushed user id is the smartloop user id.
 
 **Web app.** The smartloop web app can call the same API from the browser with
 the user's smartloop access token (`Authorization: Bearer <token>`), from the
@@ -266,7 +270,7 @@ npm test
 # In another terminal, from a checkout (builds the client image locally). Use
 # the Mac's address as seen from containers (the vmnet gateway, usually 192.168.64.1):
 GPUSHED_API=http://192.168.64.1:8787 GPUSHED_SMARTLOOP_API=http://192.168.64.1:8788 \
-  ./gpushed login you@example.com
+  ./gpushed login --email you@example.com
 ```
 
 `curl localhost:8787/__scheduled` runs the metering cron once.

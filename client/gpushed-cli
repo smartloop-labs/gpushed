@@ -173,12 +173,87 @@ show_account() {
   fi
 }
 
+# Save the API token from a sign-in response and say hello.
+signed_in() {
+  umask 077
+  jq -r .token <<<"$1" > "$TOKEN_FILE"
+  say "✅ Signed in as $(jq -r .account.email <<<"$1")."
+  say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$1")"
+  if [ "$(jq -r .account.balance_micros <<<"$1")" -le 0 ]; then
+    say ""
+    say "Add credit to start a box (minimum \$$(jq -r .account.min_topup_usd <<<"$1")): gpushed topup"
+  else
+    say "Next: gpushed up"
+  fi
+}
+
+# Sign in with an emailed code (for machines without a browser).
+email_login() {
+  # Sign in with your smartloop account: smartloop emails a code, and the
+  # smartloop session is traded for a gpushed token kept in ~/.gpushed/state.
+  [ -t 0 ] || die "gpushed login --email needs a terminal (it asks for the code smartloop emails you)."
+  email="${1:-}"
+  [ -n "$email" ] || read -r -p "smartloop account email: " email
+  email=$(tr '[:upper:]' '[:lower:]' <<<"$email" | tr -d '[:space:]')
+  [[ $email == ?*@?*.?* ]] || die "That doesn't look like an email address."
+  while true; do
+    smartloop POST /v1/auth/otp/request "$(jq -nc --arg e "$email" '{email:$e}')"
+    [ "$SL_CODE" = OTP_NO_ACCOUNT ] || break
+    say "🆕 There's no smartloop account for $email yet. gpushed uses your smartloop account;"
+    say "   create one (it's free) in your browser:"
+    open_url "$SIGNUP_URL"
+    read -r -p "   Press Enter once you've signed up with $email (or Ctrl-C to stop) " _
+  done
+  case "$SL_STATUS" in
+    200) ;;
+    429) die "${SL_MSG:-A code was just sent. Wait a moment and try again.}" ;;
+    *) die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}" ;;
+  esac
+  say "📧 smartloop sent a sign-in code to $email."
+  for attempt in 1 2 3; do
+    read -r -p "   Code: " code
+    code=$(tr -d '[:space:]' <<<"$code")
+    smartloop POST /v1/auth/otp/verify "$(jq -nc --arg e "$email" --arg c "$code" '{email:$e, code:$c}')"
+    [ "$SL_STATUS" = 200 ] && break
+    case "$SL_CODE" in
+      OTP_INVALID) [ "$attempt" -lt 3 ] && { say "   ${SL_MSG:-That code is not valid.} Try again."; continue; } ;;
+    esac
+    die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}. Run gpushed login again."
+  done
+  [ "$SL_STATUS" = 200 ] || die "Sign-in failed. Run gpushed login again."
+  access=$(jq -r '.access_token // empty' <<<"$SL_BODY")
+  [ -n "$access" ] || die "Unexpected response from smartloop sign-in."
+  NO_AUTH=1 api POST /auth/smartloop "$(jq -nc --arg t "$access" '{access_token:$t}')"
+  signed_in "$API_BODY"
+}
+
+# Sign in in the browser: the smartloop web app asks you to approve this
+# terminal's code, and we poll until you do.
+browser_login() {
+  local res device code url interval expires started
+  NO_AUTH=1 api POST /auth/cli/start '{}'; res=$API_BODY
+  device=$(jq -r .device_code <<<"$res"); code=$(jq -r .user_code <<<"$res"); url=$(jq -r .url <<<"$res")
+  interval=$(jq -r '.interval // 3' <<<"$res"); expires=$(jq -r '.expires_in // 600' <<<"$res")
+  say "🌐 Opening your browser to sign in with your smartloop account."
+  say "   Check that it shows this code, then approve: $code"
+  open_url "$url"
+  say "   Waiting for you to approve… (Ctrl-C to stop; no browser here? gpushed login --email)"
+  started=$SECONDS
+  while [ $((SECONDS - started)) -lt "$expires" ]; do
+    sleep "$interval"
+    NO_AUTH=1 API_ALLOW="202" api POST /auth/cli/poll "$(jq -nc --arg d "$device" '{device_code:$d}')"
+    [ "$API_STATUS" = 200 ] && { signed_in "$API_BODY"; return 0; }
+  done
+  die "The sign-in expired. Run gpushed login again."
+}
+
 usage() {
   cat <<EOF
 gpushed $VERSION: GPU boxes on demand, billed from a prepaid balance.
 
 Account
-  login [email]            Sign in with your smartloop account (or create one)
+  login [--email [addr]]   Sign in with your smartloop account in the browser
+                           (--email: with an emailed code instead)
   logout                   Sign out on this Mac
   balance                  Show your balance (alias: me)
   topup [usd]              Add credit with Stripe (minimum \$10)
@@ -203,52 +278,13 @@ shift || true
 
 case "$cmd" in
   login)
-    # Sign in with your smartloop account: smartloop emails a code, and the
-    # smartloop session is traded for a gpushed token kept in ~/.gpushed/state.
-    [ -t 0 ] || die "gpushed login needs a terminal (it asks for the code smartloop emails you)."
-    email="${1:-}"
-    [ -n "$email" ] || read -r -p "smartloop account email: " email
-    email=$(tr '[:upper:]' '[:lower:]' <<<"$email" | tr -d '[:space:]')
-    [[ $email == ?*@?*.?* ]] || die "That doesn't look like an email address."
-    while true; do
-      smartloop POST /v1/auth/otp/request "$(jq -nc --arg e "$email" '{email:$e}')"
-      [ "$SL_CODE" = OTP_NO_ACCOUNT ] || break
-      say "🆕 There's no smartloop account for $email yet. gpushed uses your smartloop account;"
-      say "   create one (it's free) in your browser:"
-      open_url "$SIGNUP_URL"
-      read -r -p "   Press Enter once you've signed up with $email (or Ctrl-C to stop) " _
-    done
-    case "$SL_STATUS" in
-      200) ;;
-      429) die "${SL_MSG:-A code was just sent. Wait a moment and try again.}" ;;
-      *) die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}" ;;
+    # gpushed accounts are smartloop accounts; the API token is kept in ~/.gpushed/state.
+    case "${1:-}" in
+      --email) shift; email_login "$@" ;;
+      *@*) email_login "$@" ;;
+      "") browser_login ;;
+      *) die "Usage: gpushed login [--email [address]]" ;;
     esac
-    say "📧 smartloop sent a sign-in code to $email."
-    for attempt in 1 2 3; do
-      read -r -p "   Code: " code
-      code=$(tr -d '[:space:]' <<<"$code")
-      smartloop POST /v1/auth/otp/verify "$(jq -nc --arg e "$email" --arg c "$code" '{email:$e, code:$c}')"
-      [ "$SL_STATUS" = 200 ] && break
-      case "$SL_CODE" in
-        OTP_INVALID) [ "$attempt" -lt 3 ] && { say "   ${SL_MSG:-That code is not valid.} Try again."; continue; } ;;
-      esac
-      die "${SL_MSG:-smartloop sign-in failed (HTTP $SL_STATUS)}. Run gpushed login again."
-    done
-    [ "$SL_STATUS" = 200 ] || die "Sign-in failed. Run gpushed login again."
-    access=$(jq -r '.access_token // empty' <<<"$SL_BODY")
-    [ -n "$access" ] || die "Unexpected response from smartloop sign-in."
-
-    NO_AUTH=1 api POST /auth/smartloop "$(jq -nc --arg t "$access" '{access_token:$t}')"; res=$API_BODY
-    umask 077
-    jq -r .token <<<"$res" > "$TOKEN_FILE"
-    say "✅ Signed in as $(jq -r .account.email <<<"$res")."
-    say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$res")"
-    if [ "$(jq -r .account.balance_micros <<<"$res")" -le 0 ]; then
-      say ""
-      say "Add credit to start a box (minimum \$$(jq -r .account.min_topup_usd <<<"$res")): gpushed topup"
-    else
-      say "Next: gpushed up"
-    fi
     ;;
 
   logout)

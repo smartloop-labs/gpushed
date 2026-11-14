@@ -4,7 +4,7 @@ import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
 import { type CheckoutSession, createCheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
-import { HttpError, boxId, json, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd } from "./util";
+import { HttpError, boxId, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
 
 const SSH_USER = "boxuser";
 const SSH_KEY_RE = /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$/;
@@ -180,6 +180,68 @@ function html(title: string, body: string): Response {
 route("POST", "/auth/smartloop", async (req, env) => {
   const { access_token } = await readJson<{ access_token?: string }>(req);
   const user = await smartloopUser(env, String(access_token ?? ""));
+  const token = "gp_" + randomToken();
+  await env.DB.prepare("INSERT INTO api_tokens (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)")
+    .bind(await sha256Hex(token), user.id, nowSec())
+    .run();
+  return json({ status: "ok", token, account: account(env, user) });
+});
+
+// Browser sign-in for the CLI. The CLI starts a sign-in and opens the web app at
+// /gpushed/cli-login?code=<user_code>; the signed-in user approves it there, and
+// the CLI, polling with its secret device code, then gets an API token. Only the
+// device code's hash is stored, and a sign-in lasts CLI_LOGIN_TTL seconds.
+const CLI_LOGIN_TTL = 600;
+
+route("POST", "/auth/cli/start", async (_req, env) => {
+  const now = nowSec();
+  await env.DB.prepare("DELETE FROM cli_logins WHERE expires_at < ?1").bind(now).run();
+  const deviceCode = randomToken();
+  const code = userCode();
+  await env.DB.prepare("INSERT INTO cli_logins (device_hash, user_code, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)")
+    .bind(await sha256Hex(deviceCode), code, now, now + CLI_LOGIN_TTL)
+    .run();
+  const app = (env.APP_ORIGINS ?? "").split(",")[0].trim() || "https://app.smartloop.ai";
+  return json({
+    device_code: deviceCode,
+    user_code: code,
+    url: `${app}/gpushed/cli-login?code=${code}`,
+    expires_in: CLI_LOGIN_TTL,
+    interval: 3,
+  });
+});
+
+// Called by the web app with the user's smartloop session (not a gpushed token,
+// so a leaked CLI token can't approve more sign-ins).
+route("POST", "/auth/cli/approve", async (req, env) => {
+  const bearer = (req.headers.get("authorization") ?? "").match(/^Bearer (\S+)$/)?.[1] ?? "";
+  if (!bearer || bearer.startsWith("gp_")) throw new HttpError(401, "sign in on the smartloop web app");
+  const user = await smartloopUser(env, bearer);
+  const { user_code } = await readJson<{ user_code?: string }>(req);
+  const code = normalizeUserCode(String(user_code ?? ""));
+  if (!code) throw new HttpError(400, "that doesn't look like a sign-in code");
+  const r = await env.DB.prepare(
+    "UPDATE cli_logins SET user_id = ?1 WHERE user_code = ?2 AND user_id IS NULL AND expires_at >= ?3",
+  )
+    .bind(user.id, code, nowSec())
+    .run();
+  if (!r.meta.changes) throw new HttpError(404, "this sign-in code has expired or was already used; run gpushed login again");
+  return json({ status: "ok", email: user.email });
+});
+
+route("POST", "/auth/cli/poll", async (req, env) => {
+  const { device_code } = await readJson<{ device_code?: string }>(req);
+  const hash = await sha256Hex(String(device_code ?? ""));
+  const row = await env.DB.prepare("SELECT user_id, expires_at FROM cli_logins WHERE device_hash = ?1")
+    .bind(hash)
+    .first<{ user_id: string | null; expires_at: number }>();
+  if (!row || row.expires_at < nowSec()) throw new HttpError(410, "the sign-in expired; run gpushed login again");
+  if (!row.user_id) return json({ status: "pending" }, 202);
+  // One token per approval: delete first, so a second poll can't get another.
+  const del = await env.DB.prepare("DELETE FROM cli_logins WHERE device_hash = ?1 AND user_id IS NOT NULL").bind(hash).run();
+  if (!del.meta.changes) throw new HttpError(410, "the sign-in expired; run gpushed login again");
+  const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?1").bind(row.user_id).first<User>();
+  if (!user) throw new HttpError(410, "the sign-in expired; run gpushed login again");
   const token = "gp_" + randomToken();
   await env.DB.prepare("INSERT INTO api_tokens (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)")
     .bind(await sha256Hex(token), user.id, nowSec())
