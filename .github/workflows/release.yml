@@ -65,6 +65,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_RELEASE_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_RELEASE_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
+          # R2 rejects the CRC checksums newer AWS CLIs add to multipart
+          # uploads by default (InvalidPart on CompleteMultipartUpload).
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
           BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
         run: |
