@@ -4,7 +4,7 @@
 #
 # Creates a throwaway CPU-only VM from stock Ubuntu 22.04, runs the box setup
 # (provisioner/terraform/scripts/setup.sh: NVIDIA driver, CUDA, Python, Node,
-# Rust) as its startup script, waits for it to power off, saves its disk as a
+# Rust) as its startup script, waits for it to report success, stops it, saves its disk as a
 # new image in the gpushed-cuda family, and deletes the VM. New boxes boot
 # from the newest image in the family (provision.sh), so they skip setup.
 #
@@ -69,8 +69,7 @@ else
   tail -40 /var/log/setup-script.log > /dev/ttyS0 2>/dev/null || true
   console GPUSHED_IMAGE_BUILD_FAILED
 fi
-sync
-shutdown -h now
+sync # build.sh sees the marker on the console, then stops this VM
 EOF
 } > "$work/startup.sh"
 
@@ -94,26 +93,29 @@ cleanup() {
 }
 
 echo "… installing (driver, CUDA, Python, Node, Rust; usually 15-25 minutes)"
+# The VM reports on its serial console, which is only readable while it runs
+# (stopping clears it), so watch for the result marker, then stop it here.
 start=$SECONDS
 while :; do
-  status=$("${GC[@]}" compute instances describe "$NAME" --zone "$ZONE" --format='value(status)')
-  [ "$status" = TERMINATED ] && break
+  serial=$("${GC[@]}" compute instances get-serial-port-output "$NAME" --zone "$ZONE" 2>/dev/null || true)
+  grep -q GPUSHED_IMAGE_BUILD_OK <<<"$serial" && break
+  if grep -q GPUSHED_IMAGE_BUILD_FAILED <<<"$serial"; then
+    echo "✗ setup failed; console output:"
+    grep -v '^\s*$' <<<"$serial" | tail -60
+    exit 1
+  fi
   if [ $((SECONDS - start)) -gt 3000 ]; then
     echo "✗ timed out after 50 minutes; last console output:"
-    "${GC[@]}" compute instances get-serial-port-output "$NAME" --zone "$ZONE" 2>/dev/null | tail -40
+    tail -40 <<<"$serial"
     exit 1
   fi
   sleep 30
-  echo "  $(( (SECONDS - start) / 60 ))m $status"
+  echo "  $(( (SECONDS - start) / 60 ))m"
 done
+grep -oE 'Installed: .*' <<<"$serial" | tail -1 || true
 
-serial=$("${GC[@]}" compute instances get-serial-port-output "$NAME" --zone "$ZONE" 2>/dev/null || true)
-if ! grep -q GPUSHED_IMAGE_BUILD_OK <<<"$serial"; then
-  echo "✗ setup failed; console output:"
-  grep -v '^\s*$' <<<"$serial" | tail -60
-  exit 1
-fi
-grep -E '^Installed:' <<<"$serial" | tail -1 || true
+echo "… stopping the builder"
+"${GC[@]}" compute instances stop "$NAME" --zone "$ZONE" >/dev/null
 
 echo "… saving image $NAME"
 "${GC[@]}" compute images create "$NAME" \
