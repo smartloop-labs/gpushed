@@ -33,14 +33,10 @@ export default {
   },
 };
 
-// Served at api.smartloop.ai/v1/gpushed/* (a Worker route in front of the
-// smartloop API); the prefix is optional so local dev can call /me directly.
-const PREFIX = "/v1/gpushed";
-
+// Served at https://gpushed-api.smartloop.ai (see wrangler.toml).
 async function handle(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
-  let path = url.pathname;
-  if (path === PREFIX || path.startsWith(PREFIX + "/")) path = path.slice(PREFIX.length) || "/";
+  const path = url.pathname;
   try {
     if (req.method === "OPTIONS") return new Response(null, { status: 204 });
     for (const [method, re, h] of routes) {

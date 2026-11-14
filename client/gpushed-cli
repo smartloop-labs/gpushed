@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-API="${GPUSHED_API:-https://api.smartloop.ai/v1/gpushed}"
+API="${GPUSHED_API:-https://gpushed-api.smartloop.ai}"
 SMARTLOOP_API="${GPUSHED_SMARTLOOP_API:-https://api.smartloop.ai}"
 SIGNUP_URL="${GPUSHED_SIGNUP_URL:-https://app.smartloop.ai/signup}"
 STATE="${GPUSHED_STATE:-/state}"
