@@ -7,13 +7,14 @@
 #   v1.2.3/gpushed-cli-arm64.oci.tar(.sha256)  client image, `container image load`
 #   v1.2.3/gpushed-provisioner-amd64.tar.gz(.sha256)  used by provision.yml
 #
-# Also serves install.sh at https://gpushed.smartloop.ai via GitHub Pages.
+# Also publishes the website (site/) and install.sh to https://gpushed.smartloop.ai
+# via GitHub Pages; the install command is curl -fsSL gpushed.smartloop.ai/install.sh | bash
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: # re-publish the installer site without a release
+  workflow_dispatch: # re-publish the website and installer without a release
 
 permissions:
   contents: write
@@ -90,12 +91,12 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build site
         run: |
-          mkdir -p site
-          cp install.sh site/index.html
-          cp install.sh site/install.sh
-          touch site/.nojekyll
+          mkdir -p _site
+          cp -R site/. _site/
+          cp install.sh _site/install.sh
+          touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: site
+          path: _site
       - id: deploy
         uses: actions/deploy-pages@v4

@@ -2,7 +2,7 @@
 #
 # Install gpushed:
 #
-#   curl -fsSL gpushed.smartloop.ai | bash
+#   curl -fsSL gpushed.smartloop.ai/install.sh | bash
 #
 # gpushed runs on Macs with Apple silicon and macOS 26+, using Apple's native
 # `container` runtime. Releases are served from Cloudflare R2.

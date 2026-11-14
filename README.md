@@ -9,7 +9,7 @@ cloud account, quota request or Terraform to set up. You pay per second from a
 prepaid balance and delete the box when you're done.
 
 ```bash
-curl -fsSL gpushed.smartloop.ai | bash
+curl -fsSL gpushed.smartloop.ai/install.sh | bash
 
 gpushed login        # sign in with a link sent to your email
 gpushed topup        # add credit with Stripe (minimum $10)
