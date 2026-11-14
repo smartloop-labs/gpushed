@@ -73,7 +73,6 @@ jobs:
           GPUSHED_API: ${{ vars.GPUSHED_API }}
           PROVISIONER_SECRET: ${{ secrets.PROVISIONER_SECRET }}
           GCP_PROJECT: ${{ vars.GCP_PROJECT }}
-          GCP_SUBNETWORK: ${{ vars.GCP_SUBNETWORK }}
           R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
           R2_STATE_BUCKET: ${{ vars.R2_STATE_BUCKET }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
@@ -83,6 +82,6 @@ jobs:
           docker run --rm \
             -v "$GCP_CREDS:/run/secrets/gcp.json:ro" \
             -e GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp.json \
-            -e GPUSHED_API -e PROVISIONER_SECRET -e GCP_PROJECT -e GCP_SUBNETWORK \
+            -e GPUSHED_API -e PROVISIONER_SECRET -e GCP_PROJECT \
             -e R2_ENDPOINT -e R2_STATE_BUCKET -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
             "$IMAGE" "$ACTION" "$BOX_ID"

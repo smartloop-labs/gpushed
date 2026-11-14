@@ -22,7 +22,7 @@ crons = ["*/5 * * * *"]
 PUBLIC_URL = "https://api.smartloop.ai/v1/gpushed"
 SMARTLOOP_API = "https://api.smartloop.ai"
 APP_ORIGINS = "https://app.smartloop.ai"
-REGION = "us-central1"
+REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src/regions.ts
 PREMIUM_PCT = "20"
 MIN_TOPUP_USD = "10"
 LOW_BALANCE_USD = "2"
@@ -48,7 +48,7 @@ triggers = { crons = ["*/5 * * * *"] }
 PUBLIC_URL = "http://localhost:8787"
 SMARTLOOP_API = "http://localhost:8788" # a local smartloop API (or https://api.smartloop.ai)
 APP_ORIGINS = "http://localhost:3000"
-REGION = "us-central1"
+REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src/regions.ts
 PREMIUM_PCT = "20"
 MIN_TOPUP_USD = "10"
 LOW_BALANCE_USD = "2"

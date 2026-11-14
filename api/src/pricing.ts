@@ -1,9 +1,10 @@
 // What a box costs us on GCP, and what we charge for it.
 //
-// gcpHourlyUsd is the on-demand list price in us-central1 for the machine
-// (and attached GPU). Check it against https://cloud.google.com/compute/gpus-pricing
-// and https://cloud.google.com/compute/vm-instance-pricing when changing plans
-// or regions; GCP does not bill us through this table.
+// GCP prices differ by region; the per-region list prices are generated into
+// regions.generated.ts by scripts/gcp-prices.mjs from the Cloud Billing
+// Catalog. A box is priced at the region it actually runs in.
+
+import { REGION_PRICES } from "./regions.generated";
 
 export interface Plan {
   id: string;
@@ -11,9 +12,10 @@ export interface Plan {
   machineType: string;
   gpuType: string; // "" when the machine type has the GPU built in (A2, G2)
   gpuCount: number;
-  gcpHourlyUsd: number;
 }
 
+// The machine each plan runs on. scripts/gcp-prices.mjs has the same plans
+// broken into cores, RAM and GPU for pricing; keep them in step.
 export const PLANS: Record<string, Plan> = {
   t4: {
     id: "t4",
@@ -21,7 +23,6 @@ export const PLANS: Record<string, Plan> = {
     machineType: "n1-standard-8",
     gpuType: "nvidia-tesla-t4",
     gpuCount: 1,
-    gcpHourlyUsd: 0.38 + 0.35,
   },
   l4: {
     id: "l4",
@@ -29,7 +30,6 @@ export const PLANS: Record<string, Plan> = {
     machineType: "g2-standard-4",
     gpuType: "",
     gpuCount: 0,
-    gcpHourlyUsd: 0.7068,
   },
   a100: {
     id: "a100",
@@ -37,12 +37,11 @@ export const PLANS: Record<string, Plan> = {
     machineType: "a2-highgpu-1g",
     gpuType: "",
     gpuCount: 0,
-    gcpHourlyUsd: 3.6731,
   },
 };
 
 // Not offered until GCP grants NVIDIA_A100_80GB_GPUS quota (it's 0 in our
-// project); add it back to PLANS then:
+// project); add it back to PLANS then (its prices are already generated):
 //
 //   "a100-80": {
 //     id: "a100-80",
@@ -50,26 +49,38 @@ export const PLANS: Record<string, Plan> = {
 //     machineType: "a2-ultragpu-1g",
 //     gpuType: "",
 //     gpuCount: 0,
-//     gcpHourlyUsd: 5.0688,
 //   },
 
 export const DEFAULT_PLAN = "l4";
 
-// Every box has a 100 GB pd-ssd boot disk ($0.17/GB-month) and, while
-// running, an ephemeral external IPv4 ($0.005/hour).
-export const DISK_HOURLY_USD = (100 * 0.17) / 730;
+// Every box has a 100 GB pd-ssd boot disk and, while running, an ephemeral
+// external IPv4 ($0.005/hour in every region).
+export const DISK_GB = 100;
 export const IP_HOURLY_USD = 0.005;
+const HOURS_PER_MONTH = 730;
 
 export function withPremium(costUsd: number, premiumPct: number): number {
   return Math.round(costUsd * (1 + premiumPct / 100) * 1e6);
 }
 
+// GCP's hourly cost of running a plan in a region, or null if it isn't sold there.
+export function gcpHourlyUsd(planId: string, region: string): number | null {
+  return REGION_PRICES[region]?.plans[planId] ?? null;
+}
+
+export function diskHourlyUsd(region: string): number {
+  return (DISK_GB * (REGION_PRICES[region]?.ssdGbMonth ?? 0.17)) / HOURS_PER_MONTH;
+}
+
 // Price per hour, in micro-dollars, while the box runs and while it's stopped
-// (when only its disk is billed).
-export function planPrice(plan: Plan, premiumPct: number) {
+// (when only its disk is billed). Null if the plan isn't sold in the region.
+export function planPrice(plan: Plan, region: string, premiumPct: number) {
+  const gcp = gcpHourlyUsd(plan.id, region);
+  if (gcp == null) return null;
+  const disk = diskHourlyUsd(region);
   return {
-    hourlyMicros: withPremium(plan.gcpHourlyUsd + DISK_HOURLY_USD + IP_HOURLY_USD, premiumPct),
-    stoppedHourlyMicros: withPremium(DISK_HOURLY_USD, premiumPct),
+    hourlyMicros: withPremium(gcp + disk + IP_HOURLY_USD, premiumPct),
+    stoppedHourlyMicros: withPremium(disk, premiumPct),
   };
 }
 

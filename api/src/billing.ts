@@ -19,7 +19,8 @@ export interface Box {
   user_id: string;
   plan: string;
   status: BoxStatus;
-  region: string;
+  region: string; // where it runs (until placed: the first region to try)
+  regions: string; // comma-separated regions to try for a new box, in order
   zone: string | null;
   ip: string | null;
   ssh_public_key: string;
