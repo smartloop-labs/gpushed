@@ -39,15 +39,19 @@ export const PLANS: Record<string, Plan> = {
     gpuCount: 0,
     gcpHourlyUsd: 3.6731,
   },
-  "a100-80": {
-    id: "a100-80",
-    label: "1x NVIDIA A100 80 GB, 12 vCPU, 170 GB RAM",
-    machineType: "a2-ultragpu-1g",
-    gpuType: "",
-    gpuCount: 0,
-    gcpHourlyUsd: 5.0688,
-  },
 };
+
+// Not offered until GCP grants NVIDIA_A100_80GB_GPUS quota (it's 0 in our
+// project); add it back to PLANS then:
+//
+//   "a100-80": {
+//     id: "a100-80",
+//     label: "1x NVIDIA A100 80 GB, 12 vCPU, 170 GB RAM",
+//     machineType: "a2-ultragpu-1g",
+//     gpuType: "",
+//     gpuCount: 0,
+//     gcpHourlyUsd: 5.0688,
+//   },
 
 export const DEFAULT_PLAN = "l4";
 

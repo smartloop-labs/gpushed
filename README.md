@@ -41,7 +41,6 @@ gpushed plans
 | `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4` (default) | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
-| `a100-80` | 1x A100 80 GB | a2-ultragpu-1g | $6.12 |
 
 Prices are GCP's on-demand cost of the machine, its 100 GB SSD and IP, plus
 20%. A box is billed per second from when it's created until it's deleted. A
@@ -201,8 +200,8 @@ price while running and the disk price while stopped.
    | secret | `GCP_BOOTSTRAP_KEY` | for step 4 only; delete afterwards |
    | secret | `GH_ADMIN_TOKEN` | optional, for step 4: fine-grained PAT that can write this repo's environment variables |
 
-   The release workflow's secrets and `R2_*` variables must be available to it
-   too (repository level, or move its job into the environment).
+   Limit the environment to the `main` branch and `v*` tags (the release
+   workflow runs in it on tags).
 
    This repo is public, so anyone can read workflow logs. `provision.sh` keeps
    Terraform output out of the log and masks IPs, but running `provision.yml`
