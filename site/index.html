@@ -88,7 +88,14 @@
   .pill svg { width: 15px; height: 15px; }
   h1 { font-size: clamp(40px, 5.6vw, 64px); line-height: 1.02; letter-spacing: -0.035em; margin: 20px 0 20px; font-weight: 750; }
   h1 em { font-style: normal; color: var(--accent); }
-  .lede { font-size: 20px; color: var(--ink-2); margin: 0 0 30px; max-width: 34ch; }
+  .lede { font-size: 20px; color: var(--ink-2); margin: 0 0 22px; max-width: 34ch; }
+  .stack { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 28px; padding: 0; list-style: none; max-width: 520px; }
+  .stack .label { font: 600 12px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-right: 4px; }
+  .stack li:not(.label) {
+    font-size: 13.5px; font-weight: 600; color: var(--ink-2);
+    background: var(--card); border: 1px solid var(--line);
+    padding: 4px 10px; border-radius: 8px;
+  }
   .install {
     display: flex; align-items: center; gap: 12px;
     background: var(--term-bg); color: var(--term-ink);
@@ -220,7 +227,16 @@
         Mac only · Apple silicon · macOS 26+
       </span>
       <h1>Your dedicated NVIDIA GPU, <em>on your Mac</em>.</h1>
-      <p class="lede">A whole NVIDIA A100, L4 or Tesla T4 for your research, one command from your Mac’s terminal. CUDA ready, billed per second, deleted when you're done.</p>
+      <p class="lede">A whole NVIDIA A100, L4 or Tesla T4 for your research, one command from your Mac’s terminal. Boots ready to work, billed per second, deleted when you're done.</p>
+      <ul class="stack" aria-label="Preinstalled on every box">
+        <li class="label">Preinstalled</li>
+        <li>NVIDIA driver</li>
+        <li>CUDA 12.6</li>
+        <li>Python 3.11</li>
+        <li>Node.js 24</li>
+        <li>Rust</li>
+        <li>git &amp; build tools</li>
+      </ul>
       <div class="install">
         <span class="prompt">$</span>
         <code id="cmd1">curl -fsSL gpushed.smartloop.ai/install.sh | bash</code>
@@ -268,7 +284,7 @@ name, memory.total [MiB]
         </div>
         <div class="step">
           <h3>Get a GPU</h3>
-          <p>Pick a plan, watch CUDA install, then SSH in and run your experiments.</p>
+          <p>Pick a plan. Your box boots with CUDA, Python, Node.js and Rust preinstalled, so you SSH in and start.</p>
           <code>gpushed up</code>
         </div>
       </div>
@@ -289,7 +305,7 @@ name, memory.total [MiB]
         <div class="feature">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
           <h3>CUDA and your tools, ready</h3>
-          <p>Boots from a prebuilt image with NVIDIA driver 535, CUDA 12.6, Python 3.11, Node.js and Rust already installed. Ready in minutes.</p>
+          <p>Boots from a prebuilt image with the NVIDIA driver, CUDA 12.6, Python 3.11, Node.js and Rust already installed. Ready in minutes.</p>
         </div>
         <div class="feature">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
