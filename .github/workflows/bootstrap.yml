@@ -1,0 +1,131 @@
+# One-time (and rare) setup of smartloop's GCP project for gpushed, run from
+# GitHub instead of an admin's laptop: Actions > Bootstrap GCP > Run workflow.
+# Run "plan" first to see what it will change, then "apply".
+#
+# Creates the box network and firewall, the provisioner service account, and
+# Workload Identity Federation for provision.yml (see infra/bootstrap/main.tf).
+# Terraform state is kept in R2 at <R2_STATE_BUCKET>/bootstrap/terraform.tfstate,
+# so re-running it updates the same resources.
+#
+# Needs, in the `production` environment:
+#   secret   GCP_BOOTSTRAP_KEY   JSON key of a GCP service account that may
+#                                manage IAM, Compute and APIs in the project
+#                                (e.g. roles/owner). Only this workflow uses
+#                                it; delete the key when you're done.
+#   secret   R2_STATE_ACCESS_KEY_ID / R2_STATE_SECRET_ACCESS_KEY
+#   variable R2_ENDPOINT, R2_STATE_BUCKET
+#   secret   GH_ADMIN_TOKEN      optional: a GitHub token that can write this
+#                                repo's environment variables. With it, apply
+#                                stores the outputs (GCP_PROJECT, ...) in the
+#                                `production` environment for provision.yml;
+#                                without it, copy them from the run summary.
+name: Bootstrap GCP
+
+run-name: "bootstrap ${{ inputs.action }} ${{ inputs.project_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [plan, apply]
+        default: plan
+        required: true
+      project_id:
+        description: GCP project ID
+        type: string
+        required: true
+      region:
+        type: string
+        default: us-central1
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/bootstrap
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STATE_SECRET_ACCESS_KEY }}
+      TF_IN_AUTOMATION: "1"
+      TF_VAR_project_id: ${{ inputs.project_id }}
+      TF_VAR_region: ${{ inputs.region }}
+      # The repo and branch allowed to provision boxes: always this repo's
+      # current name, so a rename is fixed by re-running this workflow.
+      TF_VAR_github_repo: ${{ github.repository }}
+      TF_VAR_github_ref: refs/heads/main
+    steps:
+      - name: Check inputs
+        working-directory: .
+        env:
+          PROJECT: ${{ inputs.project_id }}
+          REGION: ${{ inputs.region }}
+        run: |
+          [[ $PROJECT =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || { echo "invalid project id"; exit 1; }
+          [[ $REGION =~ ^[a-z]+-[a-z]+[0-9]$ ]] || { echo "invalid region"; exit 1; }
+
+      - uses: actions/checkout@v5
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_BOOTSTRAP_KEY }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: terraform init
+        env:
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_STATE_BUCKET: ${{ vars.R2_STATE_BUCKET }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=$R2_STATE_BUCKET" \
+            -backend-config="key=bootstrap/terraform.tfstate" \
+            -backend-config="endpoints={s3=\"$R2_ENDPOINT\"}"
+
+      - name: terraform plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: terraform apply
+        if: inputs.action == 'apply'
+        run: terraform apply -input=false tfplan
+
+      - name: Store outputs
+        if: inputs.action == 'apply'
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          terraform output -json > outputs.json
+          {
+            echo "### Bootstrap outputs"
+            echo
+            echo "| variable | value |"
+            echo "|---|---|"
+            jq -r 'to_entries[] | "| `\(.key)` | `\(.value.value)` |"' outputs.json
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$GH_TOKEN" ]; then
+            jq -r 'to_entries[] | "\(.key)\t\(.value.value)"' outputs.json \
+              | while IFS=$'\t' read -r name value; do
+                  gh variable set "$name" --env production --repo "$REPO" --body "$value"
+                done
+            echo "Stored as variables in the \`production\` environment." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Add these as variables in the \`production\` environment (no GH_ADMIN_TOKEN set)." >> "$GITHUB_STEP_SUMMARY"
+          fi

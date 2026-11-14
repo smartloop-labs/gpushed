@@ -1,9 +1,14 @@
-# One-time setup of smartloop's GCP project for gpushed. Run by an admin:
+# One-time setup of smartloop's GCP project for gpushed. Normally run from
+# GitHub: Actions > Bootstrap GCP (.github/workflows/bootstrap.yml), which
+# also stores the outputs as GitHub Actions variables. To run it by hand:
 #
 #   gcloud auth application-default login
-#   terraform init && terraform apply -var project_id=<our-project>
+#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...   # R2 state token
+#   terraform init -backend-config="bucket=gpushed-state" \
+#     -backend-config="key=bootstrap/terraform.tfstate" \
+#     -backend-config='endpoints={s3="https://<account>.r2.cloudflarestorage.com"}'
+#   terraform apply -var project_id=<our-project>
 #
-# Then copy the outputs into the repo's GitHub Actions variables (see README).
 # Creates: the shared VPC boxes live in, an SSH firewall rule, the provisioner
 # service account, and Workload Identity Federation so the provision workflow
 # can act as that account without any stored key.
@@ -15,6 +20,18 @@ terraform {
       source  = "hashicorp/google"
       version = "6.21.0"
     }
+  }
+
+  # State lives in Cloudflare R2 (S3-compatible); bucket, key and endpoint
+  # are passed with -backend-config.
+  backend "s3" {
+    region                      = "auto"
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_metadata_api_check     = true
+    skip_s3_checksum            = true
+    use_path_style              = true
   }
 }
 
