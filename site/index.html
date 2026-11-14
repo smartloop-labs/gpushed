@@ -243,9 +243,9 @@ name, memory.total [MiB]
       <p class="sub">No quota requests, waitlists or cloud consoles. gpushed provisions a fresh Ubuntu box with the NVIDIA driver and CUDA, and hands you SSH.</p>
       <div class="steps">
         <div class="step">
-          <h3>Sign in</h3>
-          <p>We email you a link. No password, no cloud account.</p>
-          <code>gpushed login</code>
+          <h3>Set up</h3>
+          <p>Installs Apple's container runtime and signs you in with an email link. No cloud account.</p>
+          <code>gpushed init</code>
         </div>
         <div class="step">
           <h3>Add credit</h3>
@@ -356,7 +356,7 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>What do I need to install?</summary>
-            <p>Apple's container runtime (a signed installer from Apple's GitHub releases) and gpushed itself. No Terraform, gcloud, Python or GPU drivers on your Mac.</p>
+            <p>Just gpushed. Its setup downloads Apple's container runtime from Apple's GitHub releases, checks Apple's signature and installs it, asking for your password once. No Terraform, gcloud, Python or GPU drivers on your Mac.</p>
           </details>
           <details>
             <summary>What's on the box?</summary>

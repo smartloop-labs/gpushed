@@ -13,6 +13,7 @@
 #                     (default: ~/.gpushed)
 #   GPUSHED_BIN_DIR   Where the `gpushed` command is linked (default: ~/.local/bin)
 #   GPUSHED_DL        Release download base (default: https://dl.gpushed.smartloop.ai)
+#   GPUSHED_NO_INIT   Set to 1 to skip running `gpushed init` afterwards
 #
 # Re-running it upgrades in place and keeps your sign-in and SSH key.
 
@@ -95,18 +96,22 @@ main() {
       ;;
   esac
 
-  if ! command -v container >/dev/null 2>&1; then
+  # Set up Apple's container runtime and sign in right away when someone is
+  # at the keyboard (stdin is this script when piped from curl, so use the tty).
+  if [ "${GPUSHED_NO_INIT:-0}" != 1 ] && { : </dev/tty; } 2>/dev/null; then
     say ""
-    say "⚠️  gpushed needs Apple's container runtime:"
-    say "   1. Install the signed .pkg from https://github.com/apple/container/releases"
-    say "   2. Run: container system start"
+    "$home/gpushed" init </dev/tty || say "⚠️  Setup didn't finish; run it again with: gpushed init"
+    say ""
+    say "Next steps:"
+    say "   gpushed topup     # add credit (minimum \$10)"
+    say "   gpushed up        # create your GPU box"
+  else
+    say ""
+    say "Next steps:"
+    say "   gpushed init      # install Apple's container runtime and sign in"
+    say "   gpushed topup     # add credit (minimum \$10)"
+    say "   gpushed up        # create your GPU box"
   fi
-
-  say ""
-  say "Next steps:"
-  say "   gpushed login     # sign in with your email"
-  say "   gpushed topup     # add credit (minimum \$10)"
-  say "   gpushed up        # create your GPU box"
 }
 
 say() { printf '%s\n' "$*"; }

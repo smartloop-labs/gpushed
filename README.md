@@ -9,9 +9,9 @@ cloud account, quota request or Terraform to set up. You pay per second from a
 prepaid balance and delete the box when you're done.
 
 ```bash
-curl -fsSL gpushed.smartloop.ai/install.sh | bash
+curl -fsSL gpushed.smartloop.ai/install.sh | bash   # installs, then runs gpushed init
 
-gpushed login        # sign in with a link sent to your email
+gpushed init         # installs Apple's container runtime, signs you in by email
 gpushed topup        # add credit with Stripe (minimum $10)
 gpushed up           # create your box (default: 1x L4 24 GB)
 gpushed ssh          # connect; try nvidia-smi
@@ -21,12 +21,14 @@ gpushed down         # delete it
 ## Requirements
 
 - A Mac with **Apple silicon** on **macOS 26** or later
-- Apple's native container runtime: install the signed `.pkg` from
-  <https://github.com/apple/container/releases>, then run `container system start`
+- Apple's native container runtime, which `gpushed init` sets up for you: it
+  downloads the latest signed installer from
+  <https://github.com/apple/container/releases>, checks it's signed by Apple
+  (Developer ID "Apple Inc. - Containerization") and notarized, installs it
+  (asks for your password once), and starts it
 
 The gpushed client runs inside an Apple container, so nothing else needs to be
-installed. The client image is downloaded from our release bucket the first
-time you run a command.
+installed. `init` also downloads the client image from our release bucket.
 
 ## Plans and pricing
 
@@ -58,6 +60,7 @@ with no credit for 24 hours is deleted.
 
 | Command | What it does |
 |---|---|
+| `gpushed init` | Install Apple's container runtime, fetch the client, sign in |
 | `gpushed login [email]` | Sign in with a link sent to your email |
 | `gpushed logout` | Sign out on this Mac |
 | `gpushed balance` | Show your balance |

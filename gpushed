@@ -3,7 +3,8 @@
 # gpushed: GPU boxes on demand, from your Mac.
 #
 # This wrapper runs the gpushed client inside Apple's native `container`
-# runtime (macOS 26+, Apple silicon), so there's nothing else to install: no
+# runtime (macOS 26+, Apple silicon); `gpushed init` downloads and installs
+# that runtime from Apple's GitHub releases. Nothing else to install: no
 # Terraform, no gcloud, no cloud account. The client image comes from our
 # Cloudflare R2 bucket and holds no cloud credentials; your API token and SSH
 # key live in ~/.gpushed/state, mounted into the container.
@@ -33,22 +34,76 @@ IMAGE="gpushed-cli:$VERSION"
 say() { printf '%s\n' "$*"; }
 die() { printf '❌ %s\n' "$*" >&2; exit 1; }
 
-preflight() {
+# Apple's container runtime: signed installer from its GitHub releases. We
+# only install a package signed with Apple's Containerization Developer ID
+# and notarized by Apple.
+CONTAINER_RELEASES="https://api.github.com/repos/apple/container/releases/latest"
+CONTAINER_SIGNER="Developer ID Installer: Apple Inc. - Containerization (UPBK2H6LZM)"
+export PATH="/usr/local/bin:$PATH" # where the runtime installs `container`
+
+check_platform() {
   [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] \
     || die "gpushed runs on Macs with Apple silicon (it uses Apple's native container runtime)."
   local major
   major="$(sw_vers -productVersion | cut -d. -f1)"
   [ "$major" -ge 26 ] || die "gpushed needs macOS 26 or later for Apple's container runtime (you have $(sw_vers -productVersion))."
-  if ! command -v container >/dev/null 2>&1; then
-    say "❌ Apple's container runtime isn't installed."
-    say "   1. Download the signed installer (.pkg) from https://github.com/apple/container/releases"
-    say "   2. Open it, then run: container system start"
-    exit 1
+}
+
+install_container_runtime() {
+  local url tmp pkg sig
+  say "🍏 gpushed runs on Apple's container runtime. Downloading it from github.com/apple/container..."
+  url="$(curl -fsSL "$CONTAINER_RELEASES" \
+    | grep -o '"browser_download_url": *"[^"]*-installer-signed\.pkg"' \
+    | sed 's/.*"\(https:[^"]*\)"$/\1/' | head -1)" || true
+  [ -n "$url" ] || die "Could not find the latest installer. Get it from https://github.com/apple/container/releases"
+  tmp="$(mktemp -d)"
+  pkg="$tmp/$(basename "$url")"
+  curl -fL --progress-bar -o "$pkg" "$url" || { rm -rf "$tmp"; die "Download failed: $url"; }
+
+  sig="$(pkgutil --check-signature "$pkg" 2>&1 || true)"
+  if ! grep -qF "$CONTAINER_SIGNER" <<<"$sig" \
+     || ! grep -q "Notarization: trusted by the Apple notary service" <<<"$sig" \
+     || ! spctl --assess --type install "$pkg" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    die "The downloaded installer isn't signed and notarized by Apple; not installing it."
   fi
+  say "   ✅ Signed by Apple and notarized ($(basename "$pkg"))"
+  say "🔐 Installing it needs your Mac password (sudo installer)."
+  sudo installer -pkg "$pkg" -target / >/dev/null || { rm -rf "$tmp"; die "Installing $(basename "$pkg") failed."; }
+  rm -rf "$tmp"
+  command -v container >/dev/null 2>&1 || die "Installed, but the container command wasn't found in /usr/local/bin."
+  say "   ✅ Installed $(container --version 2>/dev/null | head -1)"
+}
+
+start_container_services() {
   if ! container system status >/dev/null 2>&1; then
-    say "🍏 Starting Apple's container services (first run may ask to install a Linux kernel)..."
-    container system start || die "Could not start container services. Try: container system start"
+    say "🍏 Starting Apple's container services (the first start downloads a small Linux kernel)..."
+    container system start --enable-kernel-install >/dev/null \
+      || die "Could not start container services. Try: container system start"
   fi
+  # Services can be running without a kernel (e.g. its install prompt was
+  # declined); containers can't start until one is set.
+  local app_root
+  app_root="$(container system status 2>/dev/null | awk '$1 == "paths.appRoot" {sub(/^[^ ]+ +/, ""); print}')"
+  if [ -n "$app_root" ] && [ ! -e "${app_root%/}/kernels/default.kernel-arm64" ]; then
+    say "🐧 Installing the Linux kernel Apple's containers run on..."
+    container system kernel set --recommended >/dev/null \
+      || die "Could not install the kernel. Try: container system kernel set --recommended"
+  fi
+}
+
+# Everything a command needs before it can run the client. The runtime is
+# installed by `gpushed init`, or here when we can ask for a password.
+preflight() {
+  check_platform
+  if ! command -v container >/dev/null 2>&1; then
+    if [ -t 0 ]; then
+      install_container_runtime
+    else
+      die "Apple's container runtime isn't installed. Run: gpushed init"
+    fi
+  fi
+  start_container_services
 }
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -57,7 +112,7 @@ build_image() {
   local ctx="$BOX_DIR/client"
   [ -f "$ctx/Containerfile" ] || die "Client image source not found in $ctx"
   say "🔨 Building the gpushed client image..."
-  container build --quiet --build-arg VERSION="$VERSION" -t "$IMAGE" -f "$ctx/Containerfile" "$ctx" >/dev/null \
+  container build --build-arg VERSION="$VERSION" --tag "$IMAGE" --file "$ctx/Containerfile" "$ctx" >/dev/null \
     || die "Building the client image failed."
 }
 
@@ -99,7 +154,7 @@ run_client() {
   ) &
   local watcher=$!
 
-  local flags=(--rm -v "$STATE:/state")
+  local flags=(--rm --progress none -v "$STATE:/state")
   if [ -t 0 ] && [ -t 1 ]; then flags+=(-it); else flags+=(-i); fi
   [ -n "${GPUSHED_API:-}" ] && flags+=(-e "GPUSHED_API=$GPUSHED_API")
   [ -n "${TERM:-}" ] && flags+=(-e "TERM=$TERM")
@@ -112,6 +167,24 @@ run_client() {
 }
 
 case "${1:-help}" in
+  init)
+    # First-time setup: Apple's container runtime, the client image, sign-in.
+    check_platform
+    if command -v container >/dev/null 2>&1; then
+      say "🍏 Apple's container runtime is installed ($(container --version 2>/dev/null | head -1))."
+    else
+      install_container_runtime
+    fi
+    start_container_services
+    ensure_image
+    say "✅ Ready."
+    say ""
+    if [ -s "$STATE/token" ]; then
+      run_client balance
+    else
+      run_client login "${@:2}"
+    fi
+    ;;
   version|--version|-v)
     say "$VERSION"
     ;;
