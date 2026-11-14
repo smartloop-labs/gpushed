@@ -138,9 +138,11 @@ gpushed user id is the smartloop user id.
 **Web app.** The smartloop web app can call the same API from the browser with
 the user's smartloop access token (`Authorization: Bearer <token>`), from the
 origins in `APP_ORIGINS`. Useful routes for a usage page:
-`GET /v1/gpushed/me` (balance and box), `GET /v1/gpushed/ledger` (recent
-charges and top-ups), `GET /v1/gpushed/plans`, and `POST /v1/gpushed/topup`
-(returns a Stripe checkout URL).
+`GET /v1/gpushed/me` (balance and box), `GET /v1/gpushed/usage?days=30`
+(spend and top-ups per day), `GET /v1/gpushed/ledger?kind=topup` (recent
+top-ups), `GET /v1/gpushed/plans`, and `POST /v1/gpushed/topup` (returns a
+Stripe checkout URL; pass `return_url` on the web app to come back to it with
+`?topup=done` or `?topup=cancelled`).
 
 **Billing.** Money is stored in micro-dollars in D1. Every change is a ledger
 row with a unique ref, so Stripe webhooks and metering runs are idempotent.

@@ -222,32 +222,73 @@ route("GET", "/me", async (req, env) => {
   return json({ ...account(env, user), box: box ? boxView(box) : null });
 });
 
+// Recent ledger rows, newest first. ?kind=topup (or usage, adjust) filters;
+// usage is charged every few minutes, so /usage is better for totals.
 route("GET", "/ledger", async (req, env) => {
   const user = await authUser(req, env);
+  const kind = new URL(req.url).searchParams.get("kind");
+  if (kind && !["topup", "usage", "adjust"].includes(kind)) throw new HttpError(400, "kind must be topup, usage or adjust");
   const { results } = await env.DB.prepare(
-    "SELECT amount_micros, kind, ref, created_at FROM ledger WHERE user_id = ?1 ORDER BY id DESC LIMIT 50",
+    "SELECT amount_micros, kind, ref, created_at FROM ledger WHERE user_id = ?1 AND (?2 IS NULL OR kind = ?2) ORDER BY id DESC LIMIT 50",
   )
-    .bind(user.id)
+    .bind(user.id, kind)
     .all<{ amount_micros: number; kind: string; ref: string; created_at: number }>();
   return json({
     entries: results.map((e) => ({ amount_usd: usd(e.amount_micros), kind: e.kind, created_at: e.created_at })),
   });
 });
 
+// Spending and top-ups per day (UTC) for the last ?days= days (default 30).
+route("GET", "/usage", async (req, env) => {
+  const user = await authUser(req, env);
+  const days = Math.min(Math.max(Math.floor(Number(new URL(req.url).searchParams.get("days") ?? 30)) || 30, 1), 365);
+  const since = nowSec() - days * 86400;
+  const { results } = await env.DB.prepare(
+    `SELECT date(created_at, 'unixepoch') AS day,
+            SUM(CASE WHEN kind = 'usage' THEN -amount_micros ELSE 0 END) AS usage_micros,
+            SUM(CASE WHEN kind = 'topup' THEN amount_micros ELSE 0 END) AS topup_micros
+       FROM ledger WHERE user_id = ?1 AND created_at >= ?2 GROUP BY day ORDER BY day`,
+  )
+    .bind(user.id, since)
+    .all<{ day: string; usage_micros: number; topup_micros: number }>();
+  const total = (k: "usage_micros" | "topup_micros") => results.reduce((n, r) => n + r[k], 0);
+  return json({
+    days,
+    daily: results.map((r) => ({ date: r.day, usage_usd: usd(r.usage_micros), topup_usd: usd(r.topup_micros) })),
+    total_usage_usd: usd(total("usage_micros")),
+    total_topup_usd: usd(total("topup_micros")),
+  });
+});
+
 route("POST", "/topup", async (req, env) => {
   const user = await authUser(req, env);
-  const { amount_usd } = await readJson<{ amount_usd?: number }>(req);
+  const { amount_usd, return_url } = await readJson<{ amount_usd?: number; return_url?: string }>(req);
   const min = numVar(env.MIN_TOPUP_USD, 10);
   const amount = Number(amount_usd ?? min);
   if (!Number.isFinite(amount) || amount < min) throw new HttpError(400, `the minimum top-up is $${min}`);
   if (amount > 5000) throw new HttpError(400, "the maximum top-up is $5000");
   if (!env.STRIPE_SECRET_KEY) throw new HttpError(503, "payments are not configured");
+  // The web app can have Stripe send people back to it (only to APP_ORIGINS).
+  let back: URL | null = null;
+  if (return_url) {
+    try {
+      back = new URL(String(return_url));
+    } catch {
+      back = null;
+    }
+    if (!back || !allowedOrigin(env, back.origin)) throw new HttpError(400, "return_url must be on the smartloop web app");
+  }
+  const withStatus = (status: string) => {
+    const u = new URL(back!.href);
+    u.searchParams.set("topup", status);
+    return u.href;
+  };
   const url = await createCheckoutSession(env.STRIPE_SECRET_KEY, {
     userId: user.id,
     email: user.email,
     amountCents: Math.round(amount * 100),
-    successUrl: `${env.PUBLIC_URL}/topup/done`,
-    cancelUrl: `${env.PUBLIC_URL}/topup/cancelled`,
+    successUrl: back ? withStatus("done") : `${env.PUBLIC_URL}/topup/done`,
+    cancelUrl: back ? withStatus("cancelled") : `${env.PUBLIC_URL}/topup/cancelled`,
   });
   return json({ url });
 });
