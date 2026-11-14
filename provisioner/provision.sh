@@ -124,6 +124,16 @@ outputs_and_report() {
 
 case "$ACTION" in
   up)
+    # Boot from the newest prebuilt image (image/build.sh) when there is one:
+    # the box is ready in a minute or two instead of installing for 10-15.
+    if IMAGE=$(gcloud compute images describe-from-family gpushed-cuda --project "$GCP_PROJECT" \
+         --format="value(selfLink)" 2>/dev/null) && [ -n "$IMAGE" ]; then
+      echo "… image ${IMAGE##*/}"
+      echo "{\"image\": \"$IMAGE\"}" > image.auto.tfvars.json
+    else
+      echo "… no prebuilt image; installing on first boot"
+      rm -f image.auto.tfvars.json
+    fi
     # Nearest region first; within a region, any zone with the GPU. Move on
     # only when a zone is out of capacity or quota.
     for region in $REGIONS; do

@@ -31,6 +31,12 @@ variable "box_id" {
   }
 }
 
+variable "image" {
+  description = "Boot image: the newest gpushed-cuda image (driver, CUDA and dev tools baked in, see image/build.sh), or stock Ubuntu, which installs everything on first boot"
+  type        = string
+  default     = "ubuntu-os-cloud/ubuntu-2204-lts"
+}
+
 variable "machine_type" {
   type = string
 }
