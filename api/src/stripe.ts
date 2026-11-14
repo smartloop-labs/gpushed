@@ -21,6 +21,12 @@ export async function verifyStripeSignature(
   return sigs.some((s) => timingSafeEqual(s, expected));
 }
 
+// Pinned so Checkout behaves the same whatever the account's default API
+// version is (the smartloop account's is 2017-06-05). Newer versions create the
+// PaymentIntent only when the customer pays, which 100%-off promotion codes
+// need, and match the version of the gpushed webhook endpoint in Stripe.
+export const STRIPE_API_VERSION = "2026-10-28.endive";
+
 export async function createCheckoutSession(
   secretKey: string,
   opts: { userId: string; email: string; amountCents: number; successUrl: string; cancelUrl: string },
@@ -46,6 +52,7 @@ export async function createCheckoutSession(
     headers: {
       authorization: `Bearer ${secretKey}`,
       "content-type": "application/x-www-form-urlencoded",
+      "stripe-version": STRIPE_API_VERSION,
     },
     body,
   });
