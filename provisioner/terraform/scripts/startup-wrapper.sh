@@ -15,6 +15,16 @@ if ! flock -n 9; then
   echo "Provisioning already running in another process; waiting for it..."
   flock 9
 fi
+# User-installed tools (pip --user, uv tool, docent's installer, ...) land in
+# ~/.local/bin. Ubuntu's ~/.profile adds it only if it existed at login, and
+# the box user may have no rc files at all, so put it on PATH for every login
+# shell up front: a fresh install then works without restarting the shell.
+# Runs on every boot, so boxes made from an older image pick it up too.
+cat > /etc/profile.d/local-bin.sh << 'LOCALBINEOF'
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+LOCALBINEOF
+chmod 644 /etc/profile.d/local-bin.sh
+
 if [ -f /var/log/provisioning-completed ]; then
   echo "Already provisioned: $(cat /var/log/provisioning-completed)"
   exit 0
