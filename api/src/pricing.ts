@@ -17,7 +17,7 @@ export interface Plan {
 export const PLANS: Record<string, Plan> = {
   t4: {
     id: "t4",
-    label: "1x NVIDIA T4 16 GB, 8 vCPU, 30 GB RAM",
+    label: "1x NVIDIA Tesla T4 16 GB, 8 vCPU, 30 GB RAM",
     machineType: "n1-standard-8",
     gpuType: "nvidia-tesla-t4",
     gpuCount: 1,

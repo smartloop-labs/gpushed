@@ -36,7 +36,7 @@ gpushed plans
 
 | Plan | GPU | Machine | Price / hour |
 |---|---|---|---|
-| `t4` | 1x T4 16 GB | n1-standard-8 | $0.91 |
+| `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4` | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100` (default) | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
 | `a100-80` | 1x A100 80 GB | a2-ultragpu-1g | $6.12 |
