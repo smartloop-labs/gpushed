@@ -291,10 +291,10 @@
       </div>
     </div>
 
-    <div class="term" role="img" aria-label="Terminal: gpushed up a100 creates an A100 box and installs CUDA; nvidia-smi shows the GPU">
+    <div class="term" role="img" aria-label="Terminal: gpushed up creates an L4 box with CUDA ready; nvidia-smi shows the GPU">
       <div class="term-bar"><i></i><i></i><i></i></div>
-<pre><span class="t-cmd">gpushed up a100</span>
-<span class="t-dim">🚀 Creating box b7k2… (a100, $4.44/h)</span>
+<pre><span class="t-cmd">gpushed up</span>
+<span class="t-dim">🚀 Creating box b7k2… (l4, $0.88/h)</span>
 <span class="t-dim">   … pending</span>
 <span class="t-dim">   … running</span>
 <span class="t-g">✅ Running</span>
@@ -304,7 +304,7 @@
 <span class="t-cmd">gpushed ssh</span>
 <span class="t-dim">boxuser@gp-b7k2:~$</span> nvidia-smi --query-gpu=name,memory.total --format=csv
 name, memory.total [MiB]
-<span class="t-a">NVIDIA A100-SXM4-40GB, 40960 MiB</span>
+<span class="t-a">NVIDIA L4, 23034 MiB</span>
 <span class="t-dim">boxuser@gp-b7k2:~$</span> python train.py<span class="t-g">▌</span></pre>
     </div>
   </div>
