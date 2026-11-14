@@ -80,6 +80,7 @@ GPU_TYPE=$(jq -r .gpu_type <<<"$SPEC")
 GPU_COUNT=$(jq -r .gpu_count <<<"$SPEC")
 GPU_NAME=$(jq -r '.plan // "gpu"' <<<"$SPEC" | tr '[:lower:]' '[:upper:]') # l4 -> L4
 AVOID=" $(jq -r '(.avoid_zones // []) | join(" ")' <<<"$SPEC") "
+KNOWN_ZONES=$(jq -r '(.zones // [])[]' <<<"$SPEC") # from the API's zone table
 
 gcloud auth login --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet >/dev/null 2>&1
 gcloud config set project "$GCP_PROJECT" --quiet >/dev/null 2>&1
@@ -99,7 +100,8 @@ terraform init -input=false -reconfigure \
   -backend-config="endpoints={s3=\"$R2_ENDPOINT\"}" >"$LOG" 2>&1
 
 # Every zone offering the machine type (and GPU, when one is attached), in
-# one pair of lookups for all regions.
+# one pair of lookups for all regions. Slow (~30 s each); only used when the
+# API's spec has no zone table for the plan.
 offering_zones() {
   local zones gpu_zones
   zones=$(gcloud compute machine-types list --filter="name=$MACHINE" \
@@ -149,7 +151,7 @@ case "$ACTION" in
     # spread load. Zones that ran out of this GPU in the last few minutes
     # (avoid_zones, from earlier runs) go to the very end.
     progress "finding a zone with a free $GPU_NAME"
-    OFFERING=$(offering_zones)
+    if [ -n "$KNOWN_ZONES" ]; then OFFERING=$KNOWN_ZONES; else OFFERING=$(offering_zones); fi
     FRESH=() STALE=()
     for region in $REGIONS; do
       for z in $(grep "^$region-[a-z]$" <<<"$OFFERING" | shuf); do
@@ -167,6 +169,11 @@ case "$ACTION" in
       if apply "$z" RUNNING; then
         outputs_and_report
         exit 0
+      fi
+      if grep -qE "(machineTypes|acceleratorTypes)/[^ ]* (was not found|does not exist)|is not available in zone|not supported in zone" "$LOG"; then
+        # The zone table is stale: this zone no longer offers the plan.
+        progress "$z doesn't offer $GPU_NAME any more, moving on"
+        continue
       fi
       if ! grep -qE 'STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|does not have enough resources available|QUOTA_EXCEEDED|Quota .* exceeded' "$LOG"; then
         FAIL_REASON="could not create the box"
