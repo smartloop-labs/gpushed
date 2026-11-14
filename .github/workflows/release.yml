@@ -7,13 +7,18 @@
 #   v1.2.3/gpushed-cli-arm64.oci.tar(.sha256)  client image, `container image load`
 #   v1.2.3/gpushed-provisioner-amd64.tar.gz(.sha256)  used by provision.yml
 #
-# Also publishes the website (site/) and install.sh to https://gpushed.smartloop.ai
-# via GitHub Pages; the install command is curl -fsSL gpushed.smartloop.ai/install.sh | bash
+# On main (a push touching site/ or install.sh, or a manual run): publishes the
+# website (site/) and install.sh to https://gpushed.smartloop.ai via GitHub
+# Pages; the install command is curl -fsSL gpushed.smartloop.ai/install.sh | bash
+# Pages deploys only from main: the github-pages environment rejects tags, and
+# install.sh looks up the latest release itself, so tags don't need to redeploy.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: ["site/**", "install.sh", ".github/workflows/release.yml"]
   workflow_dispatch: # re-publish the website and installer without a release
 
 permissions:
@@ -84,7 +89,7 @@ jobs:
 
   pages:
     needs: release
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ github.ref == 'refs/heads/main' && !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
