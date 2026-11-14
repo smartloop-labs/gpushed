@@ -49,7 +49,7 @@ export const PLANS: Record<string, Plan> = {
   },
 };
 
-export const DEFAULT_PLAN = "a100";
+export const DEFAULT_PLAN = "l4";
 
 // Every box has a 100 GB pd-ssd boot disk ($0.17/GB-month) and, while
 // running, an ephemeral external IPv4 ($0.005/hour).

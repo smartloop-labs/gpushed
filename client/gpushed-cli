@@ -126,7 +126,7 @@ Account
 
 Box
   plans           GPUs you can run and their hourly price
-  up [plan]       Create your box (default plan: a100) and set it up
+  up [plan]       Create your box (default plan: l4) and set it up
   status          Show your box
   ssh [cmd...]    SSH into your box (or run a command on it)
   stop            Stop the box; only its disk is billed while stopped
