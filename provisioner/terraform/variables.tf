@@ -36,7 +36,7 @@ variable "machine_type" {
 }
 
 variable "gpu_type" {
-  description = "Accelerator to attach; empty when the machine type includes it (A2)"
+  description = "Accelerator to attach; empty when the machine type includes it (A2, G2)"
   type        = string
   default     = ""
 }

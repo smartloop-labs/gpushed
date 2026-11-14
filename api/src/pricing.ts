@@ -9,7 +9,7 @@ export interface Plan {
   id: string;
   label: string;
   machineType: string;
-  gpuType: string; // "" when the machine type has the GPU built in (A2)
+  gpuType: string; // "" when the machine type has the GPU built in (A2, G2)
   gpuCount: number;
   gcpHourlyUsd: number;
 }
@@ -17,11 +17,19 @@ export interface Plan {
 export const PLANS: Record<string, Plan> = {
   t4: {
     id: "t4",
-    label: "1x NVIDIA Tesla T4 16 GB, 8 vCPU, 30 GB RAM",
+    label: "1x NVIDIA T4 16 GB, 8 vCPU, 30 GB RAM",
     machineType: "n1-standard-8",
     gpuType: "nvidia-tesla-t4",
     gpuCount: 1,
     gcpHourlyUsd: 0.38 + 0.35,
+  },
+  l4: {
+    id: "l4",
+    label: "1x NVIDIA L4 24 GB, 4 vCPU, 16 GB RAM",
+    machineType: "g2-standard-4",
+    gpuType: "",
+    gpuCount: 0,
+    gcpHourlyUsd: 0.7068,
   },
   a100: {
     id: "a100",
