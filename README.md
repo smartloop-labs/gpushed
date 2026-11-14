@@ -96,7 +96,7 @@ in `gpushed status`; it changes after a stop/start).
 
 ## What you get
 
-- An Ubuntu 22.04 VM with the NVIDIA driver 535 (server) and CUDA Toolkit 12.6
+- An Ubuntu 22.04 VM with the NVIDIA server driver and CUDA Toolkit 12.6
 - The everyday toolchain, preinstalled: Python 3.11 (`python`, `pip`, `uv`;
   the system `python3` stays 3.10), Node.js 24 LTS with npm, Rust stable
   (`rustup`, `cargo`), and `build-essential`, `git`, `cmake`, `tmux`, `htop`
