@@ -37,6 +37,28 @@ apt_retry() {
   return 1
 }
 
+# Install packages, downloading them first with a time limit per attempt:
+# Ubuntu's mirrors sometimes stall mid-file at a trickle, which apt's own
+# timeouts don't catch. Killing a download is safe; the next attempt resumes
+# the partial file. Only the (quick) install itself runs without a limit.
+apt_install() {
+  local n=0 max=6 waited
+  local locks="/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock"
+  while :; do
+    waited=0
+    while fuser $locks >/dev/null 2>&1 && [ $waited -lt 300 ]; do
+      sleep 2
+      waited=$((waited + 2))
+    done
+    timeout 600 apt-get install -y --download-only "$@" && break
+    n=$((n + 1))
+    [ "$n" -lt "$max" ] || { echo "Downloading $* kept failing or stalling."; return 1; }
+    echo "Download stalled or failed; retrying ($n/$max)..."
+    sleep 10
+  done
+  apt_retry install -y "$@"
+}
+
 export DEBIAN_FRONTEND=noninteractive
 
 # GCE VMs have no IPv6 route; without ForceIPv4 apt tries every IPv6 mirror
@@ -50,7 +72,7 @@ Acquire::https::Timeout "20";
 APTCONF
 
 apt_retry update -y
-apt_retry install -y curl wget ca-certificates gnupg software-properties-common linux-headers-$(uname -r) dkms
+apt_install curl wget ca-certificates gnupg software-properties-common linux-headers-$(uname -r) dkms
 
 # The NVIDIA module is built for this kernel. Keep unattended-upgrades from
 # moving to a new kernel underneath it (security updates still apply).
@@ -60,11 +82,11 @@ UUCONF
 
 # Runtime libraries common local-inference apps (llama.cpp/Vulkan builds such
 # as docent) link against; the stock image lacks them.
-apt_retry install -y libfontconfig1 libvulkan1 libgomp1
+apt_install libfontconfig1 libvulkan1 libgomp1
 
 # NVIDIA driver
 echo "Installing NVIDIA driver 535..."
-apt_retry install -y nvidia-driver-535-server nvidia-utils-535-server
+apt_install nvidia-driver-535-server nvidia-utils-535-server
 
 if ! dpkg -l | grep -q "^ii.*nvidia-driver-535-server"; then
   echo "ERROR: NVIDIA driver installation failed"
@@ -75,7 +97,7 @@ fi
 # kernel that unattended-upgrades pulled in before the hold above still boots
 # with a working driver (this matters most when baking the image).
 for k in $(ls /lib/modules); do
-  apt_retry install -y "linux-headers-$k" || echo "WARNING: no headers for $k"
+  apt_install "linux-headers-$k" || echo "WARNING: no headers for $k"
   dkms autoinstall -k "$k" || echo "WARNING: dkms failed for $k"
 done
 
@@ -88,7 +110,7 @@ echo "Installing CUDA Toolkit 12.6..."
 wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb
 dpkg -i /tmp/cuda-keyring.deb
 apt_retry update -y
-apt_retry install -y cuda-toolkit-12-6
+apt_install cuda-toolkit-12-6
 
 cat > /etc/profile.d/cuda.sh << 'CUDAEOF'
 export PATH=/usr/local/cuda/bin:$PATH
@@ -99,7 +121,7 @@ chmod +x /etc/profile.d/cuda.sh
 # ---------------------------------------------------------------- dev tools
 
 echo "Installing build tools..."
-apt_retry install -y build-essential git git-lfs cmake ninja-build pkg-config \
+apt_install build-essential git git-lfs cmake ninja-build pkg-config \
   unzip zip jq htop tmux tree rsync
 
 # Python 3.11 (deadsnakes) alongside the system python3 (3.10, which Ubuntu's
@@ -107,7 +129,7 @@ apt_retry install -y build-essential git git-lfs cmake ninja-build pkg-config \
 echo "Installing Python 3.11..."
 add-apt-repository -y ppa:deadsnakes/ppa
 apt_retry update -y
-apt_retry install -y python3.11 python3.11-venv python3.11-dev
+apt_install python3.11 python3.11-venv python3.11-dev
 python3.11 -m ensurepip --upgrade
 python3.11 -m pip install --no-cache-dir --upgrade pip
 update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
@@ -117,7 +139,7 @@ curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin U
 # Node.js LTS (NodeSource)
 echo "Installing Node.js 24 LTS..."
 curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-apt_retry install -y nodejs
+apt_install nodejs
 
 # Rust (rustup, stable) for every user: toolchains in /opt/rust, each user's
 # crates and `cargo install` binaries in their own ~/.cargo.
