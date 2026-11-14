@@ -35,6 +35,11 @@ export function normalizeUserCode(s: string): string {
   return c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : "";
 }
 
+// A GCE zone name such as "us-west1-a".
+export function isZone(s: unknown): s is string {
+  return typeof s === "string" && /^[a-z]+-[a-z]+[0-9]+-[a-z]$/.test(s);
+}
+
 export function randomToken(bytes = 32): string {
   const b = new Uint8Array(bytes);
   crypto.getRandomValues(b);

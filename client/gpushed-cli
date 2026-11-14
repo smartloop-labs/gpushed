@@ -81,7 +81,7 @@ require_running_box() {
 # What a box status means while we wait on it.
 describe_status() {
   case "$1" in
-    pending) echo "creating your VM on Google Cloud (usually 1-3 minutes)" ;;
+    pending) echo "creating your VM on Google Cloud" ;;
     starting) echo "starting your VM" ;;
     stopping) echo "stopping your VM" ;;
     destroying) echo "deleting your VM and its disk" ;;
@@ -101,9 +101,11 @@ describe_done() {
 }
 
 # Poll the box until it reaches one of the given statuses (or failed). On a
-# terminal, keep one live line with a spinner and the time spent so far.
+# terminal, keep one live line with a spinner and the time spent so far,
+# showing the provisioner's current step ("creating your VM in us-west1-a");
+# each step it finishes stays on screen as its own line.
 wait_for() {
-  local want=" $* " last="" b status started=$SECONDS since=$SECONDS polled=-5 i=0 live=0
+  local want=" $* " last="" b status started=$SECONDS since=$SECONDS polled=-5 i=0 live=0 step="" now_step
   local spin=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
   [ -t 1 ] && live=1
   while true; do
@@ -111,6 +113,15 @@ wait_for() {
       polled=$SECONDS
       box_json; b=$API_BODY
       if [ "$API_STATUS" = 404 ]; then status=destroyed; else status=$(jq -r .box.status <<<"$b"); fi
+      now_step=$(jq -r '.box.progress // empty' <<<"$b" 2>/dev/null || true)
+      if [ "$status" = "$last" ] && [ "$now_step" != "$step" ]; then
+        if [ $live = 1 ]; then
+          [ -n "$step" ] && printf '\r\033[K   · %s\n' "$step"
+        elif [ -n "$now_step" ]; then
+          say "   … $now_step"
+        fi
+      fi
+      step=$now_step
       if [ "$status" != "$last" ]; then
         if [ $live = 1 ] && [ -n "$last" ]; then
           printf '\r\033[K   ✓ %s in %s\n' "$(describe_done "$last")" "$(elapsed $((SECONDS - since)))"
@@ -129,7 +140,7 @@ wait_for() {
       [ $((SECONDS - started)) -lt 1800 ] || { [ $live = 1 ] && echo; die "Timed out waiting; check later with: gpushed status"; }
     fi
     if [ $live = 1 ]; then
-      printf '\r\033[K   %s %s · %s' "${spin[i++ % 10]}" "$(describe_status "$status")" "$(elapsed $((SECONDS - since)))"
+      printf '\r\033[K   %s %s · %s' "${spin[i++ % 10]}" "${step:-$(describe_status "$status")}" "$(elapsed $((SECONDS - since)))"
     fi
     sleep 1
   done

@@ -4,9 +4,11 @@ import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
 import { type CheckoutSession, createCheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
-import { HttpError, boxId, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
+import { HttpError, boxId, isZone, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
 
 const SSH_USER = "boxuser";
+// How long a zone that ran out of a machine type is tried last for new boxes.
+const STOCKOUT_SECS = 20 * 60;
 const SSH_KEY_RE = /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$/;
 // Statuses of a box whose VM may exist; a user has at most one such box.
 const ACTIVE = "status != 'destroyed'";
@@ -137,6 +139,7 @@ function boxView(box: Box) {
     hourly_usd: usd(box.hourly_micros),
     stopped_hourly_usd: usd(box.stopped_hourly_micros),
     error: box.error,
+    progress: box.progress ?? null,
     created_at: box.created_at,
   };
 }
@@ -436,6 +439,7 @@ route("POST", "/box", async (req, env) => {
     metered_until: null,
     stopped_at: null,
     error: null,
+    progress: null,
     created_at: now,
     updated_at: now,
   };
@@ -511,7 +515,40 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
     gpu_count: plan.gpuCount,
     ssh_user: SSH_USER,
     ssh_public_key: box.ssh_public_key,
+    plan: box.plan,
+    // Zones that just ran out of this machine type: try them last.
+    avoid_zones: box.zone ? [] : await recentStockouts(env, plan.machineType),
   });
+});
+
+async function recentStockouts(env: Env, machineType: string): Promise<string[]> {
+  const { results } = await env.DB.prepare("SELECT zone FROM zone_stockouts WHERE machine_type = ?1 AND at > ?2")
+    .bind(machineType, nowSec() - STOCKOUT_SECS)
+    .all<{ zone: string }>();
+  return results.map((r) => r.zone);
+}
+
+// Progress from the provisioner while it works: a short line for the CLI to
+// show, and optionally a zone that just ran out of capacity.
+route("POST", "/internal/boxes/:id/progress", async (req, env, p) => {
+  requireProvisioner(req, env);
+  const r = await readJson<{ message?: string; stockout_zone?: string }>(req);
+  const box = await getBox(env, p.id);
+  if (!box) throw new HttpError(404, "no such box");
+  const stmts = [];
+  if (typeof r.message === "string") {
+    stmts.push(env.DB.prepare("UPDATE boxes SET progress = ?2 WHERE id = ?1").bind(box.id, r.message.slice(0, 200)));
+  }
+  if (r.stockout_zone !== undefined) {
+    if (!isZone(r.stockout_zone)) throw new HttpError(400, "bad zone");
+    stmts.push(
+      env.DB.prepare(
+        "INSERT INTO zone_stockouts (zone, machine_type, at) VALUES (?1, ?2, ?3) ON CONFLICT (zone, machine_type) DO UPDATE SET at = ?3",
+      ).bind(r.stockout_zone, PLANS[box.plan].machineType, nowSec()),
+    );
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  return json({ ok: true });
 });
 
 // The status each action moves a box out of when it finishes.
@@ -530,6 +567,15 @@ route("POST", "/internal/boxes/:id/report", async (req, env, p) => {
   if (!box) throw new HttpError(404, "no such box");
   const now = nowSec();
   const current = box.status === IN_PROGRESS[r.action];
+  // The step is over; and a zone that just took a box has capacity again.
+  const done = [env.DB.prepare("UPDATE boxes SET progress = NULL WHERE id = ?1").bind(box.id)];
+  if (r.ok && isZone(r.zone)) {
+    done.push(
+      env.DB.prepare("DELETE FROM zone_stockouts WHERE zone = ?1 AND machine_type = ?2").bind(r.zone, PLANS[box.plan].machineType),
+    );
+  }
+  await env.DB.batch(done);
+  box.progress = null;
   const f: Partial<Box> = {};
 
   if (r.ok) {

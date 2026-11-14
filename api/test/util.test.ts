@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeUserCode, userCode } from "../src/util";
+import { isZone, normalizeUserCode, userCode } from "../src/util";
 
 describe("userCode", () => {
   it("is two groups of four unambiguous symbols", () => {
@@ -21,5 +21,15 @@ describe("normalizeUserCode", () => {
   it("rejects anything that isn't eight symbols", () => {
     expect(normalizeUserCode("KQ7M-3XW")).toBe("");
     expect(normalizeUserCode("")).toBe("");
+  });
+});
+
+describe("isZone", () => {
+  it("accepts GCE zone names", () => {
+    for (const z of ["us-west1-a", "us-central1-f", "europe-west4-b", "asia-southeast1-c"]) expect(isZone(z)).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    for (const z of ["us-west1", "us-west1-ab", "US-WEST1-A", "us-west1-a; DROP", "", 7, null, undefined]) expect(isZone(z)).toBe(false);
   });
 });
