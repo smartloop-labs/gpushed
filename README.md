@@ -153,14 +153,7 @@ price while running and the disk price while stopped.
 
 ### One-time setup
 
-1. **GCP** (in our project; needs GPU quota in the region):
-   ```bash
-   cd infra/bootstrap
-   terraform init && terraform apply -var project_id=<project>
-   ```
-   Note the outputs for step 4.
-
-2. **Cloudflare R2**: create two buckets:
+1. **Cloudflare R2**: create two buckets:
    ```bash
    npx wrangler r2 bucket create gpushed-releases   # public, served at dl.gpushed.smartloop.ai
    npx wrangler r2 bucket create gpushed-state      # private, Terraform state
@@ -170,7 +163,7 @@ price while running and the disk price while stopped.
    (release workflow), one with read/write on `gpushed-state` (provision workflow).
    Optional: a lifecycle rule to expire old releases' images after 30 days.
 
-3. **API** (Cloudflare Worker + D1):
+2. **API** (Cloudflare Worker + D1):
    ```bash
    cd api && npm ci
    npx wrangler d1 create gpushed          # put the id in wrangler.toml
@@ -191,11 +184,11 @@ price while running and the disk price while stopped.
    `STOPPED_GRACE_HOURS`, `REGION`) are in [`api/wrangler.toml`](api/wrangler.toml);
    GCP list prices per plan are in [`api/src/pricing.ts`](api/src/pricing.ts).
 
-4. **GitHub**: create an environment named `production`, limited to `main`, with:
+3. **GitHub**: create an environment named `production`, limited to `main`, with:
 
    | Kind | Name | Value |
    |---|---|---|
-   | variable | `GCP_PROJECT`, `GCP_SUBNETWORK`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | bootstrap outputs |
+   | variable | `GCP_PROJECT`, `GCP_SUBNETWORK`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | set by step 4 |
    | variable | `GPUSHED_API` | `https://api.smartloop.ai/v1/gpushed` |
    | variable | `GPUSHED_DL` | `https://dl.gpushed.smartloop.ai` |
    | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
@@ -205,6 +198,8 @@ price while running and the disk price while stopped.
    | secret | `R2_STATE_ACCESS_KEY_ID`, `R2_STATE_SECRET_ACCESS_KEY` | state bucket token |
    | secret | `R2_RELEASE_ACCESS_KEY_ID`, `R2_RELEASE_SECRET_ACCESS_KEY` | release bucket token |
    | secret | `CLOUDFLARE_API_TOKEN` | Workers + D1 edit, for API deploys |
+   | secret | `GCP_BOOTSTRAP_KEY` | for step 4 only; delete afterwards |
+   | secret | `GH_ADMIN_TOKEN` | optional, for step 4: fine-grained PAT that can write this repo's environment variables |
 
    The release workflow's secrets and `R2_*` variables must be available to it
    too (repository level, or move its job into the environment).
@@ -213,6 +208,30 @@ price while running and the disk price while stopped.
    Terraform output out of the log and masks IPs, but running `provision.yml`
    from a private repo (set `GITHUB_REPO` in `wrangler.toml` and
    `github_repo` in the bootstrap) keeps box metadata fully private.
+
+4. **GCP** (in our project; needs GPU quota in the region): run
+   **Actions > Bootstrap GCP** with `plan`, check it, then run it with `apply`.
+   It runs [`infra/bootstrap`](infra/bootstrap) with Terraform state in
+   `gpushed-state/bootstrap/terraform.tfstate`, and stores its outputs as
+   `production` variables (with `GH_ADMIN_TOKEN`; otherwise copy them from
+   the run summary).
+
+   `GCP_BOOTSTRAP_KEY` is a JSON key for a service account with
+   `roles/owner` on the project:
+   ```bash
+   gcloud iam service-accounts create gpushed-bootstrap --project <project>
+   gcloud projects add-iam-policy-binding <project> \
+     --member serviceAccount:gpushed-bootstrap@<project>.iam.gserviceaccount.com --role roles/owner
+   gcloud iam service-accounts keys create key.json \
+     --iam-account gpushed-bootstrap@<project>.iam.gserviceaccount.com
+   gh secret set GCP_BOOTSTRAP_KEY --env production < key.json && rm key.json
+   ```
+   Afterwards delete the key (or the whole account); boxes are provisioned
+   through Workload Identity and never use it. Re-run the workflow (with a new
+   key) only to change the bootstrap, e.g. after renaming the repo. If your
+   organization blocks service account keys
+   (`iam.disableServiceAccountKeyCreation`), run `infra/bootstrap` by hand
+   instead; the commands are at the top of its `main.tf`.
 
 ### Releasing
 
