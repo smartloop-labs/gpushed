@@ -29,6 +29,7 @@ export interface Box {
   metered_until: number | null;
   stopped_at: number | null;
   error: string | null;
+  progress: string | null; // provisioner's current step, while one runs
   created_at: number;
   updated_at: number;
 }

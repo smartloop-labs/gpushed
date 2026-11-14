@@ -30,7 +30,7 @@ LOG=$(mktemp)
 REPORTED=0
 
 api() { # METHOD PATH [JSON]
-  curl -fsS -X "$1" "$GPUSHED_API$2" -H "authorization: Bearer $PROVISIONER_SECRET" \
+  curl -fsS -m 20 -X "$1" "$GPUSHED_API$2" -H "authorization: Bearer $PROVISIONER_SECRET" \
     -H "content-type: application/json" ${3:+--data "$3"}
 }
 
@@ -44,6 +44,15 @@ report() { # ok(true|false) [ip] [zone] [error]
   done
   echo "could not report result to the API"
   return 1
+}
+
+# Tell the API what we're doing (the CLI shows it), and optionally that a
+# zone just ran out of capacity. Best effort: never fails the run.
+progress() { # MESSAGE [STOCKOUT_ZONE]
+  echo "… $1"
+  api POST "/internal/boxes/$BOX_ID/progress" \
+    "$(jq -nc --arg m "$1" --arg z "${2:-}" '{message:$m} + (if $z != "" then {stockout_zone:$z} else {} end)')" \
+    >/dev/null 2>&1 || true
 }
 
 # Show the end of Terraform's log with addresses and keys blanked out.
@@ -69,6 +78,8 @@ ZONE=$(jq -r '.zone // empty' <<<"$SPEC")
 MACHINE=$(jq -r .machine_type <<<"$SPEC")
 GPU_TYPE=$(jq -r .gpu_type <<<"$SPEC")
 GPU_COUNT=$(jq -r .gpu_count <<<"$SPEC")
+GPU_NAME=$(jq -r '.plan // "gpu"' <<<"$SPEC" | tr '[:lower:]' '[:upper:]') # l4 -> L4
+AVOID=" $(jq -r '(.avoid_zones // []) | join(" ")' <<<"$SPEC") "
 
 gcloud auth login --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet >/dev/null 2>&1
 gcloud config set project "$GCP_PROJECT" --quiet >/dev/null 2>&1
@@ -87,18 +98,18 @@ terraform init -input=false -reconfigure \
   -backend-config="key=boxes/$BOX_ID.tfstate" \
   -backend-config="endpoints={s3=\"$R2_ENDPOINT\"}" >"$LOG" 2>&1
 
-# Zones to try in a region for a new box: every zone offering the machine
-# type (and GPU, when one is attached), in a shuffled order to spread load.
-candidate_zones() { # REGION
+# Every zone offering the machine type (and GPU, when one is attached), in
+# one pair of lookups for all regions.
+offering_zones() {
   local zones gpu_zones
-  zones=$(gcloud compute machine-types list --filter="name=$MACHINE AND zone~^$1-" \
+  zones=$(gcloud compute machine-types list --filter="name=$MACHINE" \
     --format="value(zone.basename())" 2>/dev/null | sort -u)
   if [ "$GPU_COUNT" != "0" ]; then
-    gpu_zones=$(gcloud compute accelerator-types list --filter="name=$GPU_TYPE AND zone~^$1-" \
+    gpu_zones=$(gcloud compute accelerator-types list --filter="name=$GPU_TYPE" \
       --format="value(zone.basename())" 2>/dev/null | sort -u)
     zones=$(comm -12 <(echo "$zones") <(echo "$gpu_zones"))
   fi
-  echo "$zones" | grep -v '^$' | shuf || true
+  echo "$zones" | grep -v '^$' || true
 }
 
 region_of() { sed -E 's/-[a-z]$//' <<<"$1"; } # us-central1-b -> us-central1
@@ -134,33 +145,47 @@ case "$ACTION" in
       echo "… no prebuilt image; installing on first boot"
       rm -f image.auto.tfvars.json
     fi
-    # Nearest region first; within a region, any zone with the GPU. Move on
-    # only when a zone is out of capacity or quota.
+    # Zones to try: nearest region first, zones within a region shuffled to
+    # spread load. Zones that ran out of this GPU in the last few minutes
+    # (avoid_zones, from earlier runs) go to the very end.
+    progress "finding a zone with a free $GPU_NAME"
+    OFFERING=$(offering_zones)
+    FRESH=() STALE=()
     for region in $REGIONS; do
-      ZONES=$(candidate_zones "$region")
-      [ -n "$ZONES" ] || { echo "… no zone in $region offers $MACHINE"; continue; }
-      for z in $ZONES; do
-        echo "… trying $z"
-        : >"$LOG"
-        if apply "$z" RUNNING; then
-          outputs_and_report
-          exit 0
-        fi
-        if ! grep -qE 'STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|does not have enough resources available|QUOTA_EXCEEDED|Quota .* exceeded' "$LOG"; then
-          FAIL_REASON="could not create the box"
-          exit 1
-        fi
-        echo "  no capacity in $z"
-        # Remove whatever was half-created there before moving on.
-        tf_vars "$z"
-        terraform destroy -input=false -auto-approve "${TF_VARS[@]}" >>"$LOG" 2>&1 || true
+      for z in $(grep "^$region-[a-z]$" <<<"$OFFERING" | shuf); do
+        if [[ $AVOID == *" $z "* ]]; then STALE+=("$z"); else FRESH+=("$z"); fi
       done
     done
-    FAIL_REASON="no GPU capacity for this plan right now; try again later or another plan"
+    [ ${#STALE[@]} -eq 0 ] || echo "… trying last (out of $GPU_NAME recently): ${STALE[*]}"
+    total=$((${#FRESH[@]} + ${#STALE[@]}))
+    [ "$total" -gt 0 ] || { FAIL_REASON="no region offers this plan right now"; exit 1; }
+    n=0
+    for z in "${FRESH[@]}" "${STALE[@]}"; do
+      n=$((n + 1))
+      progress "creating your VM in $z (zone $n of $total)"
+      : >"$LOG"
+      if apply "$z" RUNNING; then
+        outputs_and_report
+        exit 0
+      fi
+      if ! grep -qE 'STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|does not have enough resources available|QUOTA_EXCEEDED|Quota .* exceeded' "$LOG"; then
+        FAIL_REASON="could not create the box"
+        exit 1
+      fi
+      progress "no $GPU_NAME free in $z, moving on" "$z"
+      # Remove whatever was half-created there, if anything: a stockout
+      # usually leaves nothing, and a destroy would only cost time.
+      if terraform state list 2>/dev/null | grep -q .; then
+        tf_vars "$z"
+        terraform destroy -input=false -auto-approve "${TF_VARS[@]}" >>"$LOG" 2>&1 || true
+      fi
+    done
+    FAIL_REASON="no $GPU_NAME capacity anywhere right now; try again in a few minutes or another plan"
     exit 1
     ;;
   start)
     FAIL_REASON="could not start the box (the zone may be out of GPU capacity; try again shortly)"
+    progress "starting your VM in $ZONE"
     apply "$ZONE" RUNNING
     outputs_and_report
     ;;
