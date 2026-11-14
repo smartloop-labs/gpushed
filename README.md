@@ -8,10 +8,16 @@ get an NVIDIA GPU box (Ubuntu 22.04, driver + CUDA) in a few minutes. There's no
 cloud account, quota request or Terraform to set up. You pay per second from a
 prepaid balance and delete the box when you're done.
 
-```bash
-curl -fsSL gpushed.smartloop.ai/install.sh | bash   # installs, then runs gpushed init
+Install. This also runs `gpushed init`, which sets up Apple's container runtime
+and signs you in by email:
 
-gpushed init         # installs Apple's container runtime, signs you in by email
+```bash
+curl -fsSL gpushed.smartloop.ai/install.sh | bash
+```
+
+Then:
+
+```bash
 gpushed topup        # add credit with Stripe (minimum $10)
 gpushed up           # create your box (default: 1x L4 24 GB)
 gpushed ssh          # connect; try nvidia-smi
