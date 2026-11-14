@@ -3,6 +3,7 @@ import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
+import { PLAN_ZONES } from "./zones.generated";
 import { type CheckoutSession, createCheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
 import { HttpError, boxId, isZone, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
 
@@ -503,12 +504,16 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
   const box = await getBox(env, p.id);
   if (!box) throw new HttpError(404, "no such box");
   const plan = PLANS[box.plan];
+  // Regions to try for a new box, in order; once placed, only its own.
+  const regions = box.zone ? [box.region] : box.regions.split(",");
   return json({
     id: box.id,
     status: box.status,
     region: box.region,
-    // Regions to try for a new box, in order; once placed, only its own.
-    regions: box.zone ? [box.region] : box.regions.split(","),
+    regions,
+    // Zones offering the plan in those regions (zones.generated.ts), so the
+    // provisioner needn't look them up; empty means look them up.
+    zones: box.zone ? [] : regions.flatMap((r) => PLAN_ZONES[box.plan]?.[r] ?? []),
     zone: box.zone,
     machine_type: plan.machineType,
     gpu_type: plan.gpuType,
