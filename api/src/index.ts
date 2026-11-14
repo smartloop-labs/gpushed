@@ -1,13 +1,11 @@
 import { type Box, type User, credit, getBox, meterBox, runMetering, updateBox } from "./billing";
 import { type Env, numVar } from "./env";
-import { type ProvisionAction, dispatchProvision, sendEmail } from "./external";
+import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { type CheckoutSession, createCheckoutSession, verifyStripeSignature } from "./stripe";
 import { HttpError, boxId, json, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd } from "./util";
 
 const SSH_USER = "boxuser";
-const LOGIN_TTL_SEC = 15 * 60;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SSH_KEY_RE = /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$/;
 // Statuses of a box whose VM may exist; a user has at most one such box.
 const ACTIVE = "status != 'destroyed'";
@@ -19,18 +17,14 @@ const route = (method: string, path: string, h: Handler) =>
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    try {
-      for (const [method, re, h] of routes) {
-        const m = url.pathname.match(re);
-        if (m && req.method === method) return await h(req, env, m.groups ?? {});
-      }
-      throw new HttpError(404, "not found");
-    } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
-      console.error(e);
-      return json({ error: "internal error" }, 500);
+    const res = await handle(req, env);
+    const origin = req.headers.get("origin");
+    if (origin && allowedOrigin(env, origin)) {
+      const h = new Headers(res.headers);
+      for (const [k, v] of Object.entries(corsHeaders(origin))) h.set(k, v);
+      return new Response(res.body, { status: res.status, headers: h });
     }
+    return res;
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -38,18 +32,86 @@ export default {
   },
 };
 
+// Served at api.smartloop.ai/v1/gpushed/* (a Worker route in front of the
+// smartloop API); the prefix is optional so local dev can call /me directly.
+const PREFIX = "/v1/gpushed";
+
+async function handle(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  let path = url.pathname;
+  if (path === PREFIX || path.startsWith(PREFIX + "/")) path = path.slice(PREFIX.length) || "/";
+  try {
+    if (req.method === "OPTIONS") return new Response(null, { status: 204 });
+    for (const [method, re, h] of routes) {
+      const m = path.match(re);
+      if (m && req.method === method) return await h(req, env, m.groups ?? {});
+    }
+    throw new HttpError(404, "not found");
+  } catch (e) {
+    if (e instanceof HttpError) return json({ error: e.message }, e.status);
+    console.error(e);
+    return json({ error: "internal error" }, 500);
+  }
+}
+
+// The smartloop web app (APP_ORIGINS) calls the API from the browser.
+function allowedOrigin(env: Env, origin: string): boolean {
+  return (env.APP_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean).includes(origin);
+}
+
+function corsHeaders(origin: string): Record<string, string> {
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+    "access-control-allow-headers": "authorization, content-type",
+    "access-control-max-age": "86400",
+    vary: "origin",
+  };
+}
+
 // ---------------------------------------------------------------- helpers
 
+// The CLI sends its gpushed API token (gp_...); the smartloop web app sends
+// the user's smartloop access token, which smartloop itself verifies.
 async function authUser(req: Request, env: Env): Promise<User> {
-  const m = (req.headers.get("authorization") ?? "").match(/^Bearer (gp_[A-Za-z0-9_-]+)$/);
-  if (!m) throw new HttpError(401, "not signed in; run: gpushed login");
+  const bearer = (req.headers.get("authorization") ?? "").match(/^Bearer (\S+)$/)?.[1];
+  if (!bearer) throw new HttpError(401, "not signed in; run: gpushed login");
+  if (!bearer.startsWith("gp_")) return smartloopUser(env, bearer);
   const user = await env.DB.prepare(
     "SELECT u.* FROM users u JOIN api_tokens t ON t.user_id = u.id WHERE t.token_hash = ?1",
   )
-    .bind(await sha256Hex(m[1]))
+    .bind(await sha256Hex(bearer))
     .first<User>();
   if (!user) throw new HttpError(401, "session expired or revoked; run: gpushed login");
   return user;
+}
+
+// Look up the smartloop account a smartloop access token belongs to, and the
+// matching gpushed user (created on first use; its id is the smartloop user id).
+async function smartloopUser(env: Env, accessToken: string): Promise<User> {
+  if (!/^[A-Za-z0-9._~+/=-]{16,4096}$/.test(accessToken)) throw new HttpError(401, "not signed in; run: gpushed login");
+  let res: Response;
+  try {
+    res = await fetch(`${env.SMARTLOOP_API}/v1/users/me`, {
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+    });
+  } catch (e) {
+    console.error(e);
+    throw new HttpError(502, "could not reach smartloop sign-in; try again shortly");
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new HttpError(401, "smartloop session expired; run: gpushed login");
+  }
+  if (!res.ok) throw new HttpError(502, `smartloop sign-in failed (HTTP ${res.status})`);
+  const me = await res.json<{ id?: string; email?: string; is_active?: boolean }>();
+  if (!me.id || !me.email) throw new HttpError(502, "unexpected response from smartloop");
+  if (me.is_active === false) throw new HttpError(403, "your smartloop account is not active");
+  await env.DB.prepare(
+    "INSERT INTO users (id, email, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET email = excluded.email",
+  )
+    .bind(me.id, me.email.toLowerCase(), nowSec())
+    .run();
+  return (await env.DB.prepare("SELECT * FROM users WHERE id = ?1").bind(me.id).first<User>())!;
 }
 
 function requireProvisioner(req: Request, env: Env): void {
@@ -112,83 +174,22 @@ function html(title: string, body: string): Response {
 
 // ---------------------------------------------------------------- sign-in
 
-route("POST", "/v1/auth/start", async (req, env) => {
-  const { email: raw } = await readJson<{ email?: string }>(req);
-  const email = String(raw ?? "").trim().toLowerCase();
-  if (!EMAIL_RE.test(email) || email.length > 254) throw new HttpError(400, "enter a valid email address");
-  const now = nowSec();
-  const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_requests WHERE email = ?1 AND created_at > ?2")
-    .bind(email, now - LOGIN_TTL_SEC)
-    .first<{ n: number }>();
-  if ((recent?.n ?? 0) >= 5) throw new HttpError(429, "too many sign-in attempts; wait a few minutes");
-
-  const id = randomToken(12);
-  const verify = randomToken();
-  const poll = randomToken();
-  await env.DB.prepare(
-    "INSERT INTO login_requests (id, email, verify_hash, poll_hash, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-  )
-    .bind(id, email, await sha256Hex(verify), await sha256Hex(poll), now, now + LOGIN_TTL_SEC)
-    .run();
-  const link = `${env.PUBLIC_URL}/v1/auth/verify?id=${id}&t=${verify}`;
-  await sendEmail(
-    env,
-    email,
-    "Sign in to gpushed",
-    `Open this link to finish signing in to gpushed:\n\n${link}\n\nIt expires in 15 minutes. ` +
-      `If you didn't try to sign in, ignore this email.\n`,
-  );
-  return json({ request_id: id, poll_token: poll, expires_in: LOGIN_TTL_SEC });
-});
-
-route("GET", "/v1/auth/verify", async (req, env) => {
-  const url = new URL(req.url);
-  const id = url.searchParams.get("id") ?? "";
-  const t = url.searchParams.get("t") ?? "";
-  const r = await env.DB.prepare("SELECT verify_hash, expires_at FROM login_requests WHERE id = ?1")
-    .bind(id)
-    .first<{ verify_hash: string; expires_at: number }>();
-  if (!r || !timingSafeEqual(r.verify_hash, await sha256Hex(t))) {
-    return html("Link not valid", "Run <code>gpushed login</code> again to get a new one.");
-  }
-  if (r.expires_at < nowSec()) return html("Link expired", "Run <code>gpushed login</code> again.");
-  await env.DB.prepare("UPDATE login_requests SET verified_at = ?1 WHERE id = ?2 AND verified_at IS NULL")
-    .bind(nowSec(), id)
-    .run();
-  return html("You're signed in", "Go back to your terminal; gpushed has picked it up.");
-});
-
-route("POST", "/v1/auth/poll", async (req, env) => {
-  const { request_id, poll_token } = await readJson<{ request_id?: string; poll_token?: string }>(req);
-  const r = await env.DB.prepare("SELECT * FROM login_requests WHERE id = ?1")
-    .bind(String(request_id ?? ""))
-    .first<{ id: string; email: string; poll_hash: string; expires_at: number; verified_at: number | null; claimed_at: number | null }>();
-  if (!r || !timingSafeEqual(r.poll_hash, await sha256Hex(String(poll_token ?? "")))) {
-    throw new HttpError(404, "unknown sign-in request");
-  }
-  const now = nowSec();
-  if (r.claimed_at) throw new HttpError(410, "sign-in already completed");
-  if (!r.verified_at) {
-    if (r.expires_at < now) throw new HttpError(410, "sign-in link expired; run gpushed login again");
-    return json({ status: "pending" }, 202);
-  }
-  const claimed = await env.DB.prepare("UPDATE login_requests SET claimed_at = ?1 WHERE id = ?2 AND claimed_at IS NULL")
-    .bind(now, r.id)
-    .run();
-  if (claimed.meta.changes !== 1) throw new HttpError(410, "sign-in already completed");
-
-  await env.DB.prepare("INSERT INTO users (id, email, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(email) DO NOTHING")
-    .bind(crypto.randomUUID(), r.email, now)
-    .run();
-  const user = (await env.DB.prepare("SELECT * FROM users WHERE email = ?1").bind(r.email).first<User>())!;
+// gpushed accounts are smartloop accounts. The CLI signs in to smartloop
+// (emailed code, at SMARTLOOP_API) and trades the smartloop access token for a
+// long-lived gpushed API token here, so it never has to refresh smartloop
+// tokens. The smartloop web app can also call these routes with its own
+// session token (see authUser).
+route("POST", "/auth/smartloop", async (req, env) => {
+  const { access_token } = await readJson<{ access_token?: string }>(req);
+  const user = await smartloopUser(env, String(access_token ?? ""));
   const token = "gp_" + randomToken();
   await env.DB.prepare("INSERT INTO api_tokens (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)")
-    .bind(await sha256Hex(token), user.id, now)
+    .bind(await sha256Hex(token), user.id, nowSec())
     .run();
   return json({ status: "ok", token, account: account(env, user) });
 });
 
-route("POST", "/v1/auth/logout", async (req, env) => {
+route("POST", "/auth/logout", async (req, env) => {
   await authUser(req, env);
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
   await env.DB.prepare("DELETE FROM api_tokens WHERE token_hash = ?1").bind(await sha256Hex(token)).run();
@@ -197,7 +198,7 @@ route("POST", "/v1/auth/logout", async (req, env) => {
 
 // ---------------------------------------------------------------- account and billing
 
-route("GET", "/v1/plans", async (_req, env) => {
+route("GET", "/plans", async (_req, env) => {
   const premium = numVar(env.PREMIUM_PCT, 20);
   return json({
     default: DEFAULT_PLAN,
@@ -215,13 +216,13 @@ route("GET", "/v1/plans", async (_req, env) => {
   });
 });
 
-route("GET", "/v1/me", async (req, env) => {
+route("GET", "/me", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   return json({ ...account(env, user), box: box ? boxView(box) : null });
 });
 
-route("GET", "/v1/ledger", async (req, env) => {
+route("GET", "/ledger", async (req, env) => {
   const user = await authUser(req, env);
   const { results } = await env.DB.prepare(
     "SELECT amount_micros, kind, ref, created_at FROM ledger WHERE user_id = ?1 ORDER BY id DESC LIMIT 50",
@@ -233,7 +234,7 @@ route("GET", "/v1/ledger", async (req, env) => {
   });
 });
 
-route("POST", "/v1/topup", async (req, env) => {
+route("POST", "/topup", async (req, env) => {
   const user = await authUser(req, env);
   const { amount_usd } = await readJson<{ amount_usd?: number }>(req);
   const min = numVar(env.MIN_TOPUP_USD, 10);
@@ -256,7 +257,7 @@ route("GET", "/topup/done", async () =>
 );
 route("GET", "/topup/cancelled", async () => html("Top-up cancelled", "You weren't charged."));
 
-route("POST", "/v1/stripe/webhook", async (req, env) => {
+route("POST", "/stripe/webhook", async (req, env) => {
   const payload = await req.text();
   const ok = await verifyStripeSignature(payload, req.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET ?? "", nowSec());
   if (!ok) throw new HttpError(400, "bad signature");
@@ -273,7 +274,7 @@ route("POST", "/v1/stripe/webhook", async (req, env) => {
 
 // ---------------------------------------------------------------- boxes
 
-route("POST", "/v1/box", async (req, env) => {
+route("POST", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const body = await readJson<{ plan?: string; ssh_public_key?: string }>(req);
   const plan = PLANS[body.plan ?? DEFAULT_PLAN];
@@ -320,14 +321,14 @@ route("POST", "/v1/box", async (req, env) => {
   return json({ box: boxView(box) }, 201);
 });
 
-route("GET", "/v1/box", async (req, env) => {
+route("GET", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box; create one with gpushed up");
   return json({ box: boxView(box), account: account(env, user) });
 });
 
-route("POST", "/v1/box/stop", async (req, env) => {
+route("POST", "/box/stop", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");
@@ -338,7 +339,7 @@ route("POST", "/v1/box/stop", async (req, env) => {
   return json({ box: boxView(updated) });
 });
 
-route("POST", "/v1/box/start", async (req, env) => {
+route("POST", "/box/start", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");
@@ -352,7 +353,7 @@ route("POST", "/v1/box/start", async (req, env) => {
   return json({ box: boxView(updated) });
 });
 
-route("DELETE", "/v1/box", async (req, env) => {
+route("DELETE", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");

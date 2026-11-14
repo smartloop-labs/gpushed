@@ -2,8 +2,11 @@ name = "gpushed-api"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
-# Custom domain for the API (the CLI's default GPUSHED_API).
-routes = [{ pattern = "api.gpushed.smartloop.ai", custom_domain = true }]
+# Served under the smartloop API: Cloudflare sends api.smartloop.ai/v1/gpushed/*
+# to this Worker and everything else on api.smartloop.ai to smartloop's API as
+# before. Needs the smartloop.ai zone in this Cloudflare account, with the
+# api record proxied (orange cloud).
+routes = [{ pattern = "api.smartloop.ai/v1/gpushed/*", zone_name = "smartloop.ai" }]
 
 [[d1_databases]]
 binding = "DB"
@@ -16,7 +19,9 @@ migrations_dir = "migrations"
 crons = ["*/5 * * * *"]
 
 [vars]
-PUBLIC_URL = "https://api.gpushed.smartloop.ai"
+PUBLIC_URL = "https://api.smartloop.ai/v1/gpushed"
+SMARTLOOP_API = "https://api.smartloop.ai"
+APP_ORIGINS = "https://app.smartloop.ai"
 REGION = "us-central1"
 PREMIUM_PCT = "20"
 MIN_TOPUP_USD = "10"
@@ -30,7 +35,7 @@ EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
 # Secrets, set with `wrangler secret put NAME`:
 #   STRIPE_SECRET_KEY      Stripe secret key (sk_live_... / sk_test_...)
 #   STRIPE_WEBHOOK_SECRET  signing secret of the endpoint .../v1/stripe/webhook
-#   RESEND_API_KEY         sends sign-in links and balance warnings
+#   RESEND_API_KEY         sends balance warnings
 #   GITHUB_TOKEN           fine-grained PAT, Actions: read & write on GITHUB_REPO
 #   PROVISIONER_SECRET     random string, also stored as a GitHub Actions secret
 
@@ -41,6 +46,8 @@ d1_databases = [{ binding = "DB", database_name = "gpushed", database_id = "loca
 triggers = { crons = ["*/5 * * * *"] }
 [env.dev.vars]
 PUBLIC_URL = "http://localhost:8787"
+SMARTLOOP_API = "http://localhost:8788" # a local smartloop API (or https://api.smartloop.ai)
+APP_ORIGINS = "http://localhost:3000"
 REGION = "us-central1"
 PREMIUM_PCT = "20"
 MIN_TOPUP_USD = "10"
