@@ -2,11 +2,11 @@ name = "gpushed-api"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
-# Served under the smartloop API: Cloudflare sends api.smartloop.ai/v1/gpushed/*
-# to this Worker and everything else on api.smartloop.ai to smartloop's API as
-# before. Needs the smartloop.ai zone in this Cloudflare account, with the
-# api record proxied (orange cloud).
-routes = [{ pattern = "api.smartloop.ai/v1/gpushed/*", zone_name = "smartloop.ai" }]
+# Served at its own hostname, a Worker custom domain: Cloudflare creates the
+# DNS record and certificate. Needs the smartloop.ai zone in this Cloudflare
+# account. (api.smartloop.ai is a Supabase custom domain, so Worker routes on
+# it never run.)
+routes = [{ pattern = "gpushed-api.smartloop.ai", custom_domain = true }]
 
 [[d1_databases]]
 binding = "DB"
@@ -19,7 +19,7 @@ migrations_dir = "migrations"
 crons = ["*/5 * * * *"]
 
 [vars]
-PUBLIC_URL = "https://api.smartloop.ai/v1/gpushed"
+PUBLIC_URL = "https://gpushed-api.smartloop.ai"
 SMARTLOOP_API = "https://api.smartloop.ai"
 APP_ORIGINS = "https://app.smartloop.ai"
 REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src/regions.ts

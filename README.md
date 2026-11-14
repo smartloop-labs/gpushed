@@ -108,7 +108,7 @@ can't reach each other.
                         │ API token (per user)
                         ▼
               gpushed API  (Cloudflare Worker + D1)
-              at api.smartloop.ai/v1/gpushed · smartloop accounts · balances
+              at gpushed-api.smartloop.ai · smartloop accounts · balances
               Stripe · metering cron (every 5 min)
                         │ workflow_dispatch (box ID only)
                         ▼
@@ -146,9 +146,9 @@ gpushed user id is the smartloop user id.
 **Web app.** The smartloop web app can call the same API from the browser with
 the user's smartloop access token (`Authorization: Bearer <token>`), from the
 origins in `APP_ORIGINS`. Useful routes for a usage page:
-`GET /v1/gpushed/me` (balance and box), `GET /v1/gpushed/usage?days=30`
-(spend and top-ups per day), `GET /v1/gpushed/ledger?kind=topup` (recent
-top-ups), `GET /v1/gpushed/plans`, and `POST /v1/gpushed/topup` (returns a
+`GET /me` (balance and box), `GET /usage?days=30`
+(spend and top-ups per day), `GET /ledger?kind=topup` (recent
+top-ups), `GET /plans`, and `POST /topup` (returns a
 Stripe checkout URL; pass `return_url` on the web app to come back to it with
 `?topup=done` or `?topup=cancelled`).
 
@@ -177,17 +177,16 @@ price while running and the disk price while stopped.
    npx wrangler d1 create gpushed          # put the id in wrangler.toml
    npx wrangler d1 migrations apply gpushed --remote
    npx wrangler secret put STRIPE_SECRET_KEY
-   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://api.smartloop.ai/v1/gpushed/stripe/webhook,
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://gpushed-api.smartloop.ai/stripe/webhook,
                                                    # events: checkout.session.completed, checkout.session.async_payment_succeeded
    npx wrangler secret put RESEND_API_KEY          # low-balance emails
    npx wrangler secret put GITHUB_TOKEN            # fine-grained PAT: Actions read/write on this repo
    npx wrangler secret put PROVISIONER_SECRET      # random; same value as the GitHub secret below
    npx wrangler deploy
    ```
-   The Worker is routed at `api.smartloop.ai/v1/gpushed/*`, so the
-   `smartloop.ai` zone must be in the same Cloudflare account and the `api`
-   record proxied (orange cloud); the rest of `api.smartloop.ai` keeps going to
-   smartloop's API.
+   The Worker is served at `gpushed-api.smartloop.ai`, a Worker custom domain
+   (Cloudflare creates its DNS record and certificate on deploy), so the
+   `smartloop.ai` zone must be in the same Cloudflare account.
    Pricing knobs (`PREMIUM_PCT`, `MIN_TOPUP_USD`, `LOW_BALANCE_USD`,
    `STOPPED_GRACE_HOURS`, and `REGIONS` to limit regions) are in
    [`api/wrangler.toml`](api/wrangler.toml). Regions are listed in
@@ -200,7 +199,7 @@ price while running and the disk price while stopped.
    | Kind | Name | Value |
    |---|---|---|
    | variable | `GCP_PROJECT`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | set by step 4 |
-   | variable | `GPUSHED_API` | `https://api.smartloop.ai/v1/gpushed` |
+   | variable | `GPUSHED_API` | `https://gpushed-api.smartloop.ai` |
    | variable | `GPUSHED_DL` | `https://dl.gpushed.smartloop.ai` |
    | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
    | variable | `R2_STATE_BUCKET` / `R2_RELEASE_BUCKET` | `gpushed-state` / `gpushed-releases` |
