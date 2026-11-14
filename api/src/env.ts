@@ -1,7 +1,7 @@
 export interface Env {
   DB: D1Database;
 
-  PUBLIC_URL: string; // e.g. https://gpushed-api.smartloop.ai
+  PUBLIC_URL: string; // e.g. https://api.gpushed.dev
   SMARTLOOP_API: string; // smartloop API that signs users in, e.g. https://api.smartloop.ai
   APP_ORIGINS?: string; // comma-separated web app origins allowed to call the API (CORS)
   REGIONS?: string; // comma-separated GCP regions boxes may run in (default: all in regions.ts)

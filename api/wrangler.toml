@@ -2,11 +2,15 @@ name = "gpushed-api"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
-# Served at its own hostname, a Worker custom domain: Cloudflare creates the
-# DNS record and certificate. Needs the smartloop.ai zone in this Cloudflare
-# account. (api.smartloop.ai is a Supabase custom domain, so Worker routes on
-# it never run.)
-routes = [{ pattern = "gpushed-api.smartloop.ai", custom_domain = true }]
+# Served at its own hostnames, Worker custom domains: Cloudflare creates the
+# DNS records and certificates. Needs the gpushed.dev and smartloop.ai zones in
+# this Cloudflare account. gpushed-api.smartloop.ai stays for CLIs already
+# installed and the Stripe webhook. (api.smartloop.ai is a Supabase custom
+# domain, so Worker routes on it never run.)
+routes = [
+  { pattern = "api.gpushed.dev", custom_domain = true },
+  { pattern = "gpushed-api.smartloop.ai", custom_domain = true },
+]
 
 [[d1_databases]]
 binding = "DB"
@@ -19,7 +23,7 @@ migrations_dir = "migrations"
 crons = ["*/5 * * * *"]
 
 [vars]
-PUBLIC_URL = "https://gpushed-api.smartloop.ai"
+PUBLIC_URL = "https://api.gpushed.dev"
 SMARTLOOP_API = "https://api.smartloop.ai"
 APP_ORIGINS = "https://app.smartloop.ai"
 REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src/regions.ts

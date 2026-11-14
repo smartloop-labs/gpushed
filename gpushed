@@ -11,8 +11,8 @@
 
 set -euo pipefail
 
-GPUSHED_DL="${GPUSHED_DL:-https://dl.gpushed.smartloop.ai}"
-INSTALLER_URL="${GPUSHED_INSTALLER_URL:-https://gpushed.smartloop.ai/install.sh}"
+GPUSHED_DL="${GPUSHED_DL:-https://dl.gpushed.dev}"
+INSTALLER_URL="${GPUSHED_INSTALLER_URL:-https://gpushed.dev/install.sh}"
 
 # Find the install directory, following symlinks (~/.local/bin/gpushed -> ~/.gpushed/gpushed).
 SOURCE="${BASH_SOURCE[0]}"

@@ -1,6 +1,6 @@
 # On a version tag: build the CLI package, the Apple-container client image
 # (linux/arm64) and the provisioner image (linux/amd64), and publish them to
-# Cloudflare R2, served at vars.GPUSHED_DL (e.g. https://dl.gpushed.smartloop.ai):
+# Cloudflare R2, served at vars.GPUSHED_DL (e.g. https://dl.gpushed.dev):
 #
 #   latest                                     -> "v1.2.3"
 #   v1.2.3/gpushed.tar.gz(.sha256)             CLI package (install.sh fetches it)
@@ -8,8 +8,10 @@
 #   v1.2.3/gpushed-provisioner-amd64.tar.gz(.sha256)  used by provision.yml
 #
 # On main (a push touching site/ or install.sh, or a manual run): publishes the
-# website (site/) and install.sh to https://gpushed.smartloop.ai via GitHub
-# Pages; the install command is curl -fsSL gpushed.smartloop.ai/install.sh | bash
+# website (site/) and install.sh to https://gpushed.dev (a static-assets
+# Worker, infra/site/wrangler.toml) and to https://gpushed.smartloop.ai via
+# GitHub Pages, kept for links and install commands already out there; the
+# install command is curl -fsSL gpushed.dev/install.sh | bash
 # Pages deploys only from main: the github-pages environment rejects tags, and
 # install.sh looks up the latest release itself, so tags don't need to redeploy.
 name: Release
@@ -110,3 +112,28 @@ jobs:
           path: _site
       - id: deploy
         uses: actions/deploy-pages@v4
+
+  site:
+    needs: release
+    if: ${{ github.ref == 'refs/heads/main' && !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: production # Cloudflare API token
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - name: Build site
+        run: |
+          mkdir -p _site
+          cp -R site/. _site/
+          cp install.sh _site/install.sh
+      - run: ../../api/node_modules/.bin/wrangler deploy
+        working-directory: infra/site

@@ -13,7 +13,7 @@ Install. This also runs `gpushed init`, which sets up Apple's container runtime
 and signs you in by email:
 
 ```bash
-curl -fsSL gpushed.smartloop.ai/install.sh | bash
+curl -fsSL gpushed.dev/install.sh | bash
 ```
 
 Then:
@@ -120,7 +120,7 @@ can't reach each other.
                         │ API token (per user)
                         ▼
               gpushed API  (Cloudflare Worker + D1)
-              at gpushed-api.smartloop.ai · smartloop accounts · balances
+              at api.gpushed.dev     · smartloop accounts · balances
               Stripe · metering cron (every 5 min)
                         │ workflow_dispatch (box ID only)
                         ▼
@@ -179,9 +179,9 @@ price while running and the disk price while stopped.
 
 1. **Cloudflare R2**: create two buckets:
    ```bash
-   npx wrangler r2 bucket create gpushed-releases   # public, served at dl.gpushed.smartloop.ai
+   npx wrangler r2 bucket create gpushed-releases   # public, served at dl.gpushed.dev
    npx wrangler r2 bucket create gpushed-state      # private, Terraform state
-   npx wrangler r2 bucket domain add gpushed-releases --domain dl.gpushed.smartloop.ai --zone-id <zone>
+   npx wrangler r2 bucket domain add gpushed-releases --domain dl.gpushed.dev --zone-id <zone>
    ```
    Create two R2 API tokens: one with write access to `gpushed-releases`
    (release workflow), one with read/write on `gpushed-state` (provision workflow).
@@ -193,16 +193,18 @@ price while running and the disk price while stopped.
    npx wrangler d1 create gpushed          # put the id in wrangler.toml
    npx wrangler d1 migrations apply gpushed --remote
    npx wrangler secret put STRIPE_SECRET_KEY
-   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://gpushed-api.smartloop.ai/stripe/webhook,
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://api.gpushed.dev/stripe/webhook,
                                                    # events: checkout.session.completed, checkout.session.async_payment_succeeded
    npx wrangler secret put RESEND_API_KEY          # low-balance emails
    npx wrangler secret put GITHUB_TOKEN            # fine-grained PAT: Actions read/write on this repo
    npx wrangler secret put PROVISIONER_SECRET      # random; same value as the GitHub secret below
    npx wrangler deploy
    ```
-   The Worker is served at `gpushed-api.smartloop.ai`, a Worker custom domain
-   (Cloudflare creates its DNS record and certificate on deploy), so the
-   `smartloop.ai` zone must be in the same Cloudflare account.
+   The Worker is served at `api.gpushed.dev` and, for CLIs installed before
+   the move, `gpushed-api.smartloop.ai`: Worker custom domains (Cloudflare
+   creates their DNS records and certificates on deploy), so the `gpushed.dev`
+   and `smartloop.ai` zones must be in the same Cloudflare account. Downloads
+   are likewise on both `dl.gpushed.dev` and `dl.gpushed.smartloop.ai`.
    Pricing knobs (`PREMIUM_PCT`, `MIN_TOPUP_USD`, `LOW_BALANCE_USD`,
    `STOPPED_GRACE_HOURS`, and `REGIONS` to limit regions) are in
    [`api/wrangler.toml`](api/wrangler.toml). Regions are listed in
@@ -215,8 +217,8 @@ price while running and the disk price while stopped.
    | Kind | Name | Value |
    |---|---|---|
    | variable | `GCP_PROJECT`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | set by step 4 |
-   | variable | `GPUSHED_API` | `https://gpushed-api.smartloop.ai` |
-   | variable | `GPUSHED_DL` | `https://dl.gpushed.smartloop.ai` |
+   | variable | `GPUSHED_API` | `https://api.gpushed.dev` |
+   | variable | `GPUSHED_DL` | `https://dl.gpushed.dev` |
    | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
    | variable | `R2_STATE_BUCKET` / `R2_RELEASE_BUCKET` | `gpushed-state` / `gpushed-releases` |
    | variable | `CLOUDFLARE_ACCOUNT_ID` | your account ID |
