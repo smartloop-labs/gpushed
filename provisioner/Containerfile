@@ -1,0 +1,23 @@
+# Provisioner: Terraform + gcloud + the box's Terraform config. Built by the
+# release workflow, stored in Cloudflare R2, and run by the provision workflow
+# on GitHub Actions. The image itself holds no credentials; the workflow
+# mounts/injects the GCP credentials, R2 keys and API secret at run time.
+FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:502.0.0-slim
+
+ARG TERRAFORM_VERSION=1.9.8
+ARG TARGETARCH=amd64
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl unzip jq ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TARGETARCH}.zip" \
+ && unzip -q /tmp/tf.zip -d /usr/local/bin terraform \
+ && rm /tmp/tf.zip \
+ && terraform version
+
+WORKDIR /opt/gpushed
+COPY terraform/ terraform/
+# Download the Google provider at build time so runs don't depend on the registry.
+RUN cd terraform && terraform init -backend=false -input=false >/dev/null && rm -rf .terraform/terraform.tfstate
+ENV TF_PLUGIN_CACHE_DIR= TF_IN_AUTOMATION=1 TF_INPUT=0
+COPY provision.sh /usr/local/bin/provision
+ENTRYPOINT ["/usr/local/bin/provision"]

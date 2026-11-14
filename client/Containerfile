@@ -1,0 +1,12 @@
+# gpushed client image, run on macOS with Apple's `container` runtime. It
+# holds no cloud credentials: it talks to the gpushed API with the user's own
+# API token and SSHes to their box with their own key, both kept in the
+# mounted /state volume (~/.gpushed/state on the Mac).
+FROM alpine:3.20
+ARG VERSION=dev
+RUN apk add --no-cache bash curl jq openssh-client ca-certificates ncurses
+COPY gpushed-cli /usr/local/bin/gpushed-cli
+RUN chmod +x /usr/local/bin/gpushed-cli && echo "$VERSION" > /etc/gpushed-version
+ENV GPUSHED_STATE=/state
+VOLUME /state
+CMD ["gpushed-cli", "help"]
