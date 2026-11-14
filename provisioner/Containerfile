@@ -2,7 +2,8 @@
 # release workflow, stored in Cloudflare R2, and run by the provision workflow
 # on GitHub Actions. The image itself holds no credentials; the workflow
 # mounts/injects the GCP credentials, R2 keys and API secret at run time.
-FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:502.0.0-slim
+# Docker Hub mirror of Google's gcloud image; gcr.io no longer serves old version tags.
+FROM google/cloud-sdk:502.0.0-slim
 
 ARG TERRAFORM_VERSION=1.9.8
 ARG TARGETARCH=amd64
