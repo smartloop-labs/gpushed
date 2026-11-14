@@ -102,8 +102,12 @@
     flex: none; border: 1px solid #2c3328; background: #1a1f17; color: var(--term-ink);
     font: 600 13px var(--sans); padding: 7px 12px; border-radius: 8px; cursor: pointer;
   }
+  .copy { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; }
+  .copy svg { width: 16px; height: 16px; }
+  .copy .ok, .copy.done .icon { display: none; }
+  .copy.done .ok { display: block; }
   .copy:hover { border-color: var(--term-green); }
-  .copy.done { color: var(--term-green); }
+  .copy.done { color: var(--term-green); border-color: var(--term-green); }
   .req { margin-top: 14px; font-size: 14px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
   .req svg { width: 14px; height: 14px; flex: none; }
 
@@ -220,11 +224,11 @@
       <div class="install">
         <span class="prompt">$</span>
         <code id="cmd1">curl -fsSL gpushed.smartloop.ai/install.sh | bash</code>
-        <button class="copy" data-copy="cmd1" type="button">Copy</button>
+        <button class="copy" data-copy="cmd1" type="button" aria-label="Copy install command" title="Copy"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></button>
       </div>
       <div class="req">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 4.8v.1" stroke-linecap="round"/></svg>
-        Runs in Apple's native <code>container</code> runtime. No cloud account, Terraform or drivers to set up.
+        <span>Runs in Apple's native <code>container</code> runtime. No cloud account, Terraform or drivers to set up.</span>
       </div>
     </div>
 
@@ -399,7 +403,7 @@ name, memory.total [MiB]
       <div class="install">
         <span class="prompt">$</span>
         <code id="cmd2">curl -fsSL gpushed.smartloop.ai/install.sh | bash</code>
-        <button class="copy" data-copy="cmd2" type="button">Copy</button>
+        <button class="copy" data-copy="cmd2" type="button" aria-label="Copy install command" title="Copy"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></button>
       </div>
     </div>
   </section>
@@ -417,9 +421,9 @@ name, memory.total [MiB]
     btn.addEventListener("click", function () {
       var text = document.getElementById(btn.dataset.copy).textContent;
       var done = function () {
-        btn.textContent = "Copied";
         btn.classList.add("done");
-        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("done"); }, 1600);
+        btn.setAttribute("aria-label", "Copied");
+        setTimeout(function () { btn.classList.remove("done"); btn.setAttribute("aria-label", "Copy install command"); }, 1600);
       };
       if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
     });
