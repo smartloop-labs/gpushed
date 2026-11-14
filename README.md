@@ -210,7 +210,10 @@ price while running and the disk price while stopped.
    [`api/wrangler.toml`](api/wrangler.toml). Regions are listed in
    [`api/src/regions.ts`](api/src/regions.ts) (and their subnets in
    `infra/bootstrap`); GCP list prices per plan and region are generated into
-   `api/src/regions.generated.ts` by `node api/scripts/gcp-prices.mjs <project>`.
+   `api/src/regions.generated.ts` by `node api/scripts/gcp-prices.mjs <project>`,
+   and the zones offering each plan into `api/src/zones.generated.ts` by
+   `node api/scripts/gcp-zones.mjs <project>` (rerun both when adding a region
+   or plan).
 
 3. **GitHub**: create an environment named `production`, limited to `main`, with:
 
