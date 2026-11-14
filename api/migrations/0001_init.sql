@@ -26,7 +26,8 @@ CREATE TABLE boxes (
   user_id               TEXT NOT NULL REFERENCES users(id),
   plan                  TEXT NOT NULL,
   status                TEXT NOT NULL,
-  region                TEXT NOT NULL,
+  region                TEXT NOT NULL,   -- where it runs; until placed, the first region to try
+  regions               TEXT NOT NULL,   -- comma-separated regions to try for a new box, nearest first
   zone                  TEXT,
   ip                    TEXT,
   ssh_public_key        TEXT NOT NULL,

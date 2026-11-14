@@ -36,16 +36,24 @@ installed. `init` also downloads the client image from our release bucket.
 gpushed plans
 ```
 
-| Plan | GPU | Machine | Price / hour |
+| Plan | GPU | Machine | Price / hour (US) |
 |---|---|---|---|
 | `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4` (default) | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
-| `a100-80` | 1x A100 80 GB | a2-ultragpu-1g | $6.12 |
 
 Prices are GCP's on-demand cost of the machine, its 100 GB SSD and IP, plus
 20%. A box is billed per second from when it's created until it's deleted. A
 stopped box costs only its disk (about $0.03/hour).
+
+**Regions.** A new box goes to the region nearest you (from Cloudflare's
+estimate of where your request comes from): us-central1 (Iowa), us-east1
+(South Carolina), us-west1 (Oregon), europe-west4 (Netherlands) or
+asia-southeast1 (Singapore). If that region is out of GPUs it tries the next
+nearest, and it's billed at the price of the region it lands in. Europe is
+about 3-5% above the US and Singapore 9-23%; `gpushed plans` shows the prices
+for your region, `gpushed plans --region asia-southeast1` for another, and
+`gpushed up l4 --region europe-west4` picks the region yourself.
 
 **Balance.** Credit is prepaid: the minimum top-up is $10, and you can top up
 any amount above that at any time with `gpushed topup 25`. To create or start a
@@ -181,14 +189,17 @@ price while running and the disk price while stopped.
    record proxied (orange cloud); the rest of `api.smartloop.ai` keeps going to
    smartloop's API.
    Pricing knobs (`PREMIUM_PCT`, `MIN_TOPUP_USD`, `LOW_BALANCE_USD`,
-   `STOPPED_GRACE_HOURS`, `REGION`) are in [`api/wrangler.toml`](api/wrangler.toml);
-   GCP list prices per plan are in [`api/src/pricing.ts`](api/src/pricing.ts).
+   `STOPPED_GRACE_HOURS`, and `REGIONS` to limit regions) are in
+   [`api/wrangler.toml`](api/wrangler.toml). Regions are listed in
+   [`api/src/regions.ts`](api/src/regions.ts) (and their subnets in
+   `infra/bootstrap`); GCP list prices per plan and region are generated into
+   `api/src/regions.generated.ts` by `node api/scripts/gcp-prices.mjs <project>`.
 
 3. **GitHub**: create an environment named `production`, limited to `main`, with:
 
    | Kind | Name | Value |
    |---|---|---|
-   | variable | `GCP_PROJECT`, `GCP_SUBNETWORK`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | set by step 4 |
+   | variable | `GCP_PROJECT`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | set by step 4 |
    | variable | `GPUSHED_API` | `https://api.smartloop.ai/v1/gpushed` |
    | variable | `GPUSHED_DL` | `https://dl.gpushed.smartloop.ai` |
    | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
@@ -201,15 +212,15 @@ price while running and the disk price while stopped.
    | secret | `GCP_BOOTSTRAP_KEY` | for step 4 only; delete afterwards |
    | secret | `GH_ADMIN_TOKEN` | optional, for step 4: fine-grained PAT that can write this repo's environment variables |
 
-   The release workflow's secrets and `R2_*` variables must be available to it
-   too (repository level, or move its job into the environment).
+   Limit the environment to the `main` branch and `v*` tags (the release
+   workflow runs in it on tags).
 
    This repo is public, so anyone can read workflow logs. `provision.sh` keeps
    Terraform output out of the log and masks IPs, but running `provision.yml`
    from a private repo (set `GITHUB_REPO` in `wrangler.toml` and
    `github_repo` in the bootstrap) keeps box metadata fully private.
 
-4. **GCP** (in our project; needs GPU quota in the region): run
+4. **GCP** (in our project; needs GPU quota in each region): run
    **Actions > Bootstrap GCP** with `plan`, check it, then run it with `apply`.
    It runs [`infra/bootstrap`](infra/bootstrap) with Terraform state in
    `gpushed-state/bootstrap/terraform.tfstate`, and stores its outputs as

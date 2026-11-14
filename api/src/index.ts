@@ -2,6 +2,7 @@ import { type Box, type User, credit, getBox, meterBox, runMetering, updateBox }
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
+import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
 import { type CheckoutSession, createCheckoutSession, verifyStripeSignature } from "./stripe";
 import { HttpError, boxId, json, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd } from "./util";
 
@@ -133,6 +134,7 @@ function boxView(box: Box) {
     plan: box.plan,
     status: box.status,
     region: box.region,
+    region_name: REGIONS.find((r) => r.id === box.region)?.name ?? box.region,
     zone: box.zone,
     ip: box.ip,
     ssh_user: SSH_USER,
@@ -198,20 +200,33 @@ route("POST", "/auth/logout", async (req, env) => {
 
 // ---------------------------------------------------------------- account and billing
 
-route("GET", "/plans", async (_req, env) => {
+// Plans priced for one region: ?region=, or the region nearest the caller
+// (where `gpushed up` would try first).
+route("GET", "/plans", async (req, env) => {
   const premium = numVar(env.PREMIUM_PCT, 20);
+  const regions = enabledRegions(env.REGIONS);
+  const asked = new URL(req.url).searchParams.get("region");
+  const loc = requestLocation(req);
+  const region = asked ? regions.find((r) => r.id === asked) : byDistance(regions, loc.lat, loc.lon)[0];
+  if (!region) throw new HttpError(400, `unknown region; choose one of: ${regions.map((r) => r.id).join(", ")}`);
   return json({
     default: DEFAULT_PLAN,
-    region: env.REGION,
-    plans: Object.values(PLANS).map((p) => {
-      const price = planPrice(p, premium);
-      return {
-        id: p.id,
-        label: p.label,
-        machine_type: p.machineType,
-        hourly_usd: usd(price.hourlyMicros),
-        stopped_hourly_usd: usd(price.stoppedHourlyMicros),
-      };
+    region: region.id,
+    region_name: region.name,
+    nearest: !asked,
+    regions: regions.map((r) => ({ id: r.id, name: r.name })),
+    plans: Object.values(PLANS).flatMap((p) => {
+      const price = planPrice(p, region.id, premium);
+      if (!price) return [];
+      return [
+        {
+          id: p.id,
+          label: p.label,
+          machine_type: p.machineType,
+          hourly_usd: usd(price.hourlyMicros),
+          stopped_hourly_usd: usd(price.stoppedHourlyMicros),
+        },
+      ];
     }),
   });
 });
@@ -317,7 +332,7 @@ route("POST", "/stripe/webhook", async (req, env) => {
 
 route("POST", "/box", async (req, env) => {
   const user = await authUser(req, env);
-  const body = await readJson<{ plan?: string; ssh_public_key?: string }>(req);
+  const body = await readJson<{ plan?: string; ssh_public_key?: string; region?: string }>(req);
   const plan = PLANS[body.plan ?? DEFAULT_PLAN];
   if (!plan) throw new HttpError(400, `unknown plan; choose one of: ${Object.keys(PLANS).join(", ")}`);
   // Drop the key's comment: it ends up in GCE metadata as "user:type key".
@@ -327,11 +342,25 @@ route("POST", "/box", async (req, env) => {
   const existing = await activeBox(env, user.id);
   if (existing) throw new HttpError(409, `you already have a box (${existing.id}, ${existing.status}); run gpushed down first`);
 
-  const price = planPrice(plan, numVar(env.PREMIUM_PCT, 20));
-  if (user.balance_micros < price.hourlyMicros) {
+  // Regions to try, in order: the one asked for, or nearest first. The box is
+  // billed at the price of the region it lands in.
+  const offered = enabledRegions(env.REGIONS, plan.id);
+  let candidates = byDistance(offered, requestLocation(req).lat, requestLocation(req).lon);
+  if (body.region) {
+    candidates = offered.filter((r) => r.id === body.region);
+    if (candidates.length === 0) {
+      throw new HttpError(400, `${plan.id} isn't offered in ${body.region}; choose one of: ${offered.map((r) => r.id).join(", ")}`);
+    }
+  }
+  if (candidates.length === 0) throw new HttpError(503, `${plan.id} isn't available right now`);
+  const premium = numVar(env.PREMIUM_PCT, 20);
+  // At least an hour at the price shown for the first region (what plans shows).
+  const price = planPrice(plan, candidates[0].id, premium)!;
+  const needed = price.hourlyMicros;
+  if (user.balance_micros < needed) {
     throw new HttpError(
       402,
-      `balance $${usd(user.balance_micros)} is less than one hour of ${plan.id} ($${usd(price.hourlyMicros)}); run gpushed topup`,
+      `balance $${usd(user.balance_micros)} is less than one hour of ${plan.id} ($${usd(needed)}); run gpushed topup`,
     );
   }
   const now = nowSec();
@@ -340,7 +369,8 @@ route("POST", "/box", async (req, env) => {
     user_id: user.id,
     plan: plan.id,
     status: "pending",
-    region: env.REGION,
+    region: candidates[0].id,
+    regions: candidates.map((r) => r.id).join(","),
     zone: null,
     ip: null,
     ssh_public_key: key,
@@ -353,10 +383,10 @@ route("POST", "/box", async (req, env) => {
     updated_at: now,
   };
   await env.DB.prepare(
-    `INSERT INTO boxes (id, user_id, plan, status, region, ssh_public_key, hourly_micros, stopped_hourly_micros, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
+    `INSERT INTO boxes (id, user_id, plan, status, region, regions, ssh_public_key, hourly_micros, stopped_hourly_micros, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`,
   )
-    .bind(box.id, box.user_id, box.plan, box.status, box.region, box.ssh_public_key, box.hourly_micros, box.stopped_hourly_micros, now)
+    .bind(box.id, box.user_id, box.plan, box.status, box.region, box.regions, box.ssh_public_key, box.hourly_micros, box.stopped_hourly_micros, now)
     .run();
   await dispatchOrFail(env, box, "up", now);
   return json({ box: boxView(box) }, 201);
@@ -416,6 +446,8 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
     id: box.id,
     status: box.status,
     region: box.region,
+    // Regions to try for a new box, in order; once placed, only its own.
+    regions: box.zone ? [box.region] : box.regions.split(","),
     zone: box.zone,
     machine_type: plan.machineType,
     gpu_type: plan.gpuType,
@@ -447,6 +479,14 @@ route("POST", "/internal/boxes/:id/report", async (req, env, p) => {
     if (r.action === "up" || r.action === "start") {
       f.ip = r.ip ?? box.ip;
       f.zone = r.zone ?? box.zone;
+      // Placed in another region than first priced: bill that region's price.
+      const region = f.zone ? regionOfZone(f.zone) : box.region;
+      if (region !== box.region) {
+        const price = planPrice(PLANS[box.plan], region, numVar(env.PREMIUM_PCT, 20));
+        if (price) {
+          Object.assign(f, { region, hourly_micros: price.hourlyMicros, stopped_hourly_micros: price.stoppedHourlyMicros });
+        }
+      }
       f.stopped_at = null;
       // The VM exists from here on, whatever the user did meanwhile: bill it.
       if (box.metered_until == null) f.metered_until = now;

@@ -135,7 +135,7 @@
   .feature p { margin: 0; color: var(--ink-2); font-size: 15.5px; }
 
   /* pricing */
-  .plans { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .plan { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; }
   .plan.hot { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .plan .tag { font: 600 12px var(--sans); color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; height: 18px; }
@@ -305,7 +305,7 @@ name, memory.total [MiB]
     <div class="wrap">
       <div class="kicker">Pricing</div>
       <h2>Simple hourly prices, charged by the second.</h2>
-      <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Prepay from $10 and top up whenever you like.</p>
+      <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Prepay from $10 and top up whenever you like. US prices shown; Europe and Asia cost a little more.</p>
       <div class="plans">
         <div class="plan">
           <div class="tag"></div>
@@ -327,13 +327,6 @@ name, memory.total [MiB]
           <div class="spec">40 GB · 12 vCPU · 85 GB RAM</div>
           <div class="price">$4.44<small> / hour</small></div>
           <div class="id">gpushed up a100</div>
-        </div>
-        <div class="plan">
-          <div class="tag">Most memory</div>
-          <h3>A100 80 GB</h3>
-          <div class="spec">80 GB · 12 vCPU · 170 GB RAM</div>
-          <div class="price">$6.12<small> / hour</small></div>
-          <div class="id">gpushed up a100-80</div>
         </div>
       </div>
       <div class="billing">
@@ -364,7 +357,7 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>Where does it run?</summary>
-            <p>On Google Cloud in us-central1. If one zone is out of GPUs, gpushed tries the region's other zones automatically.</p>
+            <p>On Google Cloud, in the region nearest you: Iowa, South Carolina or Oregon in the US, the Netherlands, or Singapore. If it's out of GPUs, gpushed tries its other zones and then the next nearest region automatically. Pick one yourself with <code>gpushed up --region europe-west4</code>. Prices differ a little by region; <code>gpushed plans</code> shows yours.</p>
           </details>
         </div>
         <div>

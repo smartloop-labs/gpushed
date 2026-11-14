@@ -39,9 +39,18 @@ variable "project_id" {
   type = string
 }
 
-variable "region" {
-  type    = string
-  default = "us-central1"
+# Regions boxes run in, each with its subnet's range. Keep in step with
+# REGIONS in api/src/regions.ts. Add new regions with new ranges; changing a
+# region's range recreates its subnet.
+variable "regions" {
+  type = map(string)
+  default = {
+    "us-central1"     = "10.20.0.0/16"
+    "us-east1"        = "10.21.0.0/16"
+    "us-west1"        = "10.22.0.0/16"
+    "europe-west4"    = "10.23.0.0/16"
+    "asia-southeast1" = "10.24.0.0/16"
+  }
 }
 
 variable "github_repo" {
@@ -58,7 +67,6 @@ variable "github_ref" {
 
 provider "google" {
   project = var.project_id
-  region  = var.region
 }
 
 data "google_project" "this" {}
@@ -82,11 +90,13 @@ resource "google_compute_network" "gpushed" {
   depends_on              = [google_project_service.apis]
 }
 
+# One subnet per region, named gpushed-<region> (provision.sh relies on it).
 resource "google_compute_subnetwork" "boxes" {
-  name          = "gpushed-${var.region}"
-  region        = var.region
+  for_each      = var.regions
+  name          = "gpushed-${each.key}"
+  region        = each.key
   network       = google_compute_network.gpushed.id
-  ip_cidr_range = "10.20.0.0/16"
+  ip_cidr_range = each.value
 }
 
 resource "google_compute_firewall" "ssh" {
@@ -102,13 +112,13 @@ resource "google_compute_firewall" "ssh" {
 
 # Boxes belong to different users: don't let them reach each other inside the
 # VPC. Priority 900 beats the SSH rule's default 1000 for sources inside the
-# subnet; SSH from the internet doesn't match this rule and stays allowed.
+# subnets; SSH from the internet doesn't match this rule and stays allowed.
 resource "google_compute_firewall" "deny_internal" {
   name          = "gpushed-deny-internal"
   network       = google_compute_network.gpushed.name
   priority      = 900
   direction     = "INGRESS"
-  source_ranges = [google_compute_subnetwork.boxes.ip_cidr_range]
+  source_ranges = values(var.regions)
   target_tags   = ["gpushed-box"]
   deny {
     protocol = "all"
@@ -163,9 +173,6 @@ output "GCP_PROJECT" {
   value = var.project_id
 }
 
-output "GCP_SUBNETWORK" {
-  value = google_compute_subnetwork.boxes.name
-}
 
 output "GCP_SERVICE_ACCOUNT" {
   value = google_service_account.provisioner.email
