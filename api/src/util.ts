@@ -19,6 +19,22 @@ export function hex(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// A short code people compare between terminal and browser, e.g. "KQ7M-3XWD".
+// 32 symbols without I, O, 0 and 1, so each random byte maps without bias.
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export function userCode(): string {
+  const b = new Uint8Array(8);
+  crypto.getRandomValues(b);
+  const c = Array.from(b, (x) => CODE_ALPHABET[x & 31]).join("");
+  return `${c.slice(0, 4)}-${c.slice(4)}`;
+}
+
+// Accepts what people type: any case, with or without the dash or spaces.
+export function normalizeUserCode(s: string): string {
+  const c = s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : "";
+}
+
 export function randomToken(bytes = 32): string {
   const b = new Uint8Array(bytes);
   crypto.getRandomValues(b);
