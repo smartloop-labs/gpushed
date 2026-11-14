@@ -43,7 +43,7 @@ jobs:
       - name: Build client image (Apple container, linux/arm64)
         run: |
           docker buildx build --platform linux/arm64 --build-arg VERSION="$V" \
-            --output "type=oci,dest=dist/gpushed-cli-arm64.oci.tar,name=gpushed-cli:$V" client
+            --output "type=oci,dest=dist/gpushed-cli-arm64.oci.tar,name=gpushed-cli:$V" -f client/Containerfile client
 
       - name: Build provisioner image (linux/amd64)
         run: |
@@ -54,7 +54,7 @@ jobs:
         run: |
           bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh
           docker run --rm --entrypoint provision "gpushed-provisioner:$V" 2>&1 | grep -q usage
-          docker buildx build --platform linux/amd64 --load -t gpushed-cli:test client
+          docker buildx build --platform linux/amd64 --load -t gpushed-cli:test -f client/Containerfile client
           docker run --rm gpushed-cli:test gpushed-cli version | grep -q .
 
       - name: Checksums
