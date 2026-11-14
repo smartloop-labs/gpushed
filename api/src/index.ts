@@ -3,7 +3,7 @@ import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
-import { type CheckoutSession, createCheckoutSession, verifyStripeSignature } from "./stripe";
+import { type CheckoutSession, createCheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
 import { HttpError, boxId, json, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd } from "./util";
 
 const SSH_USER = "boxuser";
@@ -317,9 +317,8 @@ route("POST", "/stripe/webhook", async (req, env) => {
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const s = event.data.object;
     const userId = s.metadata?.user_id ?? s.client_reference_id;
-    if (s.payment_status === "paid" && userId && s.amount_total && (s.currency ?? "usd") === "usd") {
-      await credit(env, userId, s.amount_total * 10_000, "topup", `stripe:${s.id}`, nowSec());
-    }
+    const cents = topupCents(s);
+    if (userId && cents > 0) await credit(env, userId, cents * 10_000, "topup", `stripe:${s.id}`, nowSec());
   }
   return json({ received: true });
 });

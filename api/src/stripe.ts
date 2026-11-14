@@ -37,6 +37,9 @@ export async function createCheckoutSession(
     customer_email: opts.email,
     "metadata[user_id]": opts.userId,
     "payment_intent_data[metadata][user_id]": opts.userId,
+    // Promotion codes give free credit: the webhook credits the amount before
+    // discounts (see topupCents), so a 100%-off code is a free top-up.
+    allow_promotion_codes: "true",
   });
   const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
@@ -55,7 +58,19 @@ export interface CheckoutSession {
   id: string;
   payment_status: string;
   amount_total: number | null;
+  amount_subtotal?: number | null;
   currency: string | null;
   metadata?: Record<string, string> | null;
   client_reference_id?: string | null;
+}
+
+// The USD cents a completed top-up session is worth: the top-up amount before
+// any promotion code, so coupons add free credit rather than shrink it. A
+// fully discounted session completes as "no_payment_required". Returns 0 for
+// sessions that should not be credited.
+export function topupCents(s: CheckoutSession): number {
+  if (s.payment_status !== "paid" && s.payment_status !== "no_payment_required") return 0;
+  if ((s.currency ?? "usd") !== "usd") return 0;
+  const cents = s.amount_subtotal ?? s.amount_total ?? 0;
+  return cents > 0 ? cents : 0;
 }
