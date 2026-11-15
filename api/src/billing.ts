@@ -223,8 +223,8 @@ export async function runMetering(env: Env, now: number): Promise<void> {
   for (const box of broke) {
     try {
       if (box.status === "running") {
-        await updateBox(env, box, { status: "stopping" }, now);
-        await dispatchProvision(env, "stop", box.id);
+        const stopping = await updateBox(env, box, { status: "stopping" }, now);
+        if (!(await dispatchOrRevert(env, stopping, "stop", "running", now))) continue;
         await sendEmail(
           env,
           box.email,
@@ -234,11 +234,62 @@ export async function runMetering(env: Env, now: number): Promise<void> {
         );
       } else if (box.exhausted_at != null && box.exhausted_at <= now - graceSec) {
         // Stopped (or stuck in failed) with no money for the whole grace period.
-        await updateBox(env, box, { status: "destroying" }, now);
-        await dispatchProvision(env, "down", box.id);
+        const destroying = await updateBox(env, box, { status: "destroying" }, now);
+        await dispatchOrRevert(env, destroying, "down", box.status, now);
       }
     } catch (e) {
       console.error(`enforcing balance on ${box.id} failed`, e);
+    }
+  }
+
+  await retryStuckProvisions(env, now);
+}
+
+// Ask the provisioner to run `action` on a box the cron just moved into
+// stopping/destroying. If GitHub can't be reached, put the box back in
+// `revertTo` so the next run (5 minutes later) tries again; left in
+// stopping/destroying, the balance check would never select it again.
+export async function dispatchOrRevert(
+  env: Env,
+  box: Box,
+  action: "stop" | "down",
+  revertTo: BoxStatus,
+  now: number,
+): Promise<boolean> {
+  try {
+    await dispatchProvision(env, action, box.id);
+    return true;
+  } catch (e) {
+    console.error(`dispatching ${action} for ${box.id} failed; back to ${revertTo} to retry`, e);
+    await updateBox(env, box, { status: revertTo }, now);
+    return false;
+  }
+}
+
+// The provision job times out after 30 minutes (.github/workflows/provision.yml);
+// allow for queueing behind another run of the same box.
+export const STUCK_AFTER_SEC = 45 * 60;
+
+// A stop or delete whose provisioner run never reported back (its dispatch was
+// lost, or the run was cancelled or timed out) leaves the box stopping or
+// destroying for good: a stopping box bills at the full GPU rate and is never
+// stopped or deleted. Dispatch the action again; both are idempotent, and the
+// report of a stale run is ignored once the box has moved on.
+export async function retryStuckProvisions(env: Env, now: number): Promise<void> {
+  const { results: stuck } = await env.DB.prepare(
+    "SELECT * FROM boxes WHERE status IN ('stopping', 'destroying') AND updated_at <= ?1",
+  )
+    .bind(now - STUCK_AFTER_SEC)
+    .all<Box>();
+  for (const box of stuck) {
+    const action = box.status === "stopping" ? "stop" : "down";
+    try {
+      console.warn(`box ${box.id} has been ${box.status} since ${box.updated_at}; dispatching ${action} again`);
+      // Touch updated_at first, so a box is retried at most every STUCK_AFTER_SEC.
+      await updateBox(env, box, {}, now);
+      await dispatchProvision(env, action, box.id);
+    } catch (e) {
+      console.error(`retrying ${action} for ${box.id} failed`, e);
     }
   }
 }
