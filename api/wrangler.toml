@@ -18,6 +18,11 @@ database_name = "gpushed"
 database_id = "2c942c01-b93a-4001-a1fc-11fdfbc61840"
 migrations_dir = "migrations"
 
+# Keep the Worker's logs (console output, errors, and each request) so
+# problems such as a failed Stripe webhook delivery can be looked into later.
+[observability]
+enabled = true
+
 # Meter usage and enforce balances every 5 minutes.
 [triggers]
 crons = ["*/5 * * * *"]
