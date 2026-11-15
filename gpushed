@@ -126,11 +126,23 @@ build_image() {
   rm -f "$log"
 }
 
+# Delete client images left behind by earlier versions (or, in a git
+# checkout, by earlier edits to ./client). Releases and dev builds only prune
+# their own kind, so a checkout never removes the installed release's image.
+prune_old_images() {
+  local kind="v"
+  [ "$VERSION" = dev ] && kind="dev-"
+  container image list -q 2>/dev/null \
+    | grep "^gpushed-cli:$kind" | grep -vxF "$IMAGE" \
+    | xargs container image delete >/dev/null 2>&1 || true
+}
+
 # Load this version's client image from R2 (once), verifying its checksum.
 ensure_image() {
   container image inspect "$IMAGE" >/dev/null 2>&1 && return 0
   if [ "$VERSION" = dev ]; then
     build_image
+    prune_old_images
     return 0
   fi
   local tmp file="gpushed-cli-arm64.oci.tar"
@@ -144,6 +156,7 @@ ensure_image() {
   rm -rf "$tmp"
   # Fall back to building it from the copy of ./client shipped in the package.
   container image inspect "$IMAGE" >/dev/null 2>&1 || build_image
+  prune_old_images
 }
 
 run_client() {
