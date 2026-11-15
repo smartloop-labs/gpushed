@@ -24,6 +24,13 @@ cat > /etc/profile.d/local-bin.sh << 'LOCALBINEOF'
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 LOCALBINEOF
 chmod 644 /etc/profile.d/local-bin.sh
+# Login shells read /etc/profile.d, but VS Code/Cursor remote terminals,
+# `gpushed ssh <command>` and some tmux setups start non-login bash, which
+# reads /etc/bash.bashrc instead. Source the same file from its first line,
+# ahead of its early return for non-interactive shells, so those get
+# ~/.local/bin too (and docent's installer stops asking to source ~/.bashrc).
+grep -q 'profile.d/local-bin.sh' /etc/bash.bashrc 2>/dev/null \
+  || sed -i '1i [ -r /etc/profile.d/local-bin.sh ] \&\& . /etc/profile.d/local-bin.sh # gpushed' /etc/bash.bashrc
 
 if [ -f /var/log/provisioning-completed ]; then
   echo "Already provisioned: $(cat /var/log/provisioning-completed)"
