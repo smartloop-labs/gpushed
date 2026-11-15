@@ -23,7 +23,7 @@ set -euo pipefail
 ZONE="${ZONE:-us-central1-a}"
 REGION="${ZONE%-*}"
 FAMILY="${FAMILY:-gpushed-cuda}"
-KEEP="${KEEP:-3}" # images to keep in the family
+KEEP="${KEEP:-1}" # images to keep in the family (KEEP=2 or more to keep a rollback)
 VERSION="$(date -u +%Y%m%d-%H%M%S)"
 NAME="$FAMILY-$VERSION"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
