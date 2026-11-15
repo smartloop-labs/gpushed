@@ -373,7 +373,7 @@ case "$cmd" in
     wait_for_ssh
     follow_setup
     say ""
-    say "🎉 Your GPU box is ready."
+    say "🎉 Your GPU box is ready, with CUDA, Python 3.11 (python, pip, uv), Node.js and Rust installed."
     say "   gpushed ssh      # connect, then try: nvidia-smi"
     say "   gpushed stop     # pause it (disk kept, ~\$0.03/h)"
     say "   gpushed down     # delete it"
