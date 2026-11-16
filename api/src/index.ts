@@ -1,7 +1,7 @@
 import { type Box, type User, credit, getBox, meterBox, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
-import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
+import { DEFAULT_PLAN, PLANS, isPremium, planPrice, requiredBalanceMicros } from "./pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
 import { PLAN_ZONES } from "./zones.generated";
 import { type CheckoutSession, createCheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
@@ -280,6 +280,9 @@ route("GET", "/plans", async (req, env) => {
     plans: Object.values(PLANS).flatMap((p) => {
       const price = planPrice(p, region.id, premium);
       if (!price) return [];
+      // Enabled regions with a price and at least one zone offering the machine.
+      const where = enabledRegions(env.REGIONS, p.id).filter((r) => (PLAN_ZONES[p.id]?.[r.id] ?? []).length > 0);
+      const offered = where.some((r) => r.id === region.id);
       return [
         {
           id: p.id,
@@ -287,6 +290,12 @@ route("GET", "/plans", async (req, env) => {
           machine_type: p.machineType,
           hourly_usd: usd(price.hourlyMicros),
           stopped_hourly_usd: usd(price.stoppedHourlyMicros),
+          premium: isPremium(price.hourlyMicros),
+          min_balance_usd: usd(requiredBalanceMicros(price.hourlyMicros)),
+          // available: can be created now; unavailable: not offered yet (no GCP
+          // quota); elsewhere: offered, but not in this region.
+          status: !p.available || where.length === 0 ? "unavailable" : offered ? "available" : "elsewhere",
+          regions: p.available ? where.map((r) => r.id) : [],
         },
       ];
     }),
@@ -393,11 +402,19 @@ route("POST", "/stripe/webhook", async (req, env) => {
 
 // ---------------------------------------------------------------- boxes
 
+function balanceShortMessage(balanceMicros: number, planId: string, hourlyMicros: number, neededMicros: number): string {
+  const why = isPremium(hourlyMicros)
+    ? `the $${usd(neededMicros)} minimum for ${planId}, a premium plan ($${usd(hourlyMicros)}/h)`
+    : `one hour of ${planId} ($${usd(neededMicros)})`;
+  return `balance $${usd(balanceMicros)} is less than ${why}; run gpushed topup`;
+}
+
 route("POST", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const body = await readJson<{ plan?: string; ssh_public_key?: string; region?: string }>(req);
   const plan = PLANS[body.plan ?? DEFAULT_PLAN];
   if (!plan) throw new HttpError(400, `unknown plan; choose one of: ${Object.keys(PLANS).join(", ")}`);
+  if (!plan.available) throw new HttpError(503, `${plan.id} isn't available yet; see gpushed plans`);
   // Drop the key's comment: it ends up in GCE metadata as "user:type key".
   const key = String(body.ssh_public_key ?? "").trim().split(/\s+/).slice(0, 2).join(" ");
   if (!SSH_KEY_RE.test(key) || key.length > 4096) throw new HttpError(400, "invalid SSH public key");
@@ -417,14 +434,12 @@ route("POST", "/box", async (req, env) => {
   }
   if (candidates.length === 0) throw new HttpError(503, `${plan.id} isn't available right now`);
   const premium = numVar(env.PREMIUM_PCT, 20);
-  // At least an hour at the price shown for the first region (what plans shows).
+  // At least an hour at the price shown for the first region (what plans
+  // shows), or $100 for a premium plan.
   const price = planPrice(plan, candidates[0].id, premium)!;
-  const needed = price.hourlyMicros;
+  const needed = requiredBalanceMicros(price.hourlyMicros);
   if (user.balance_micros < needed) {
-    throw new HttpError(
-      402,
-      `balance $${usd(user.balance_micros)} is less than one hour of ${plan.id} ($${usd(needed)}); run gpushed topup`,
-    );
+    throw new HttpError(402, balanceShortMessage(user.balance_micros, plan.id, price.hourlyMicros, needed));
   }
   const now = nowSec();
   const box: Box = {
@@ -479,8 +494,9 @@ route("POST", "/box/start", async (req, env) => {
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");
   if (box.status !== "stopped") throw new HttpError(409, `box is ${box.status}; only a stopped box can be started`);
-  if (user.balance_micros < box.hourly_micros) {
-    throw new HttpError(402, `balance $${usd(user.balance_micros)} is less than one hour of use; run gpushed topup`);
+  const needed = requiredBalanceMicros(box.hourly_micros);
+  if (user.balance_micros < needed) {
+    throw new HttpError(402, balanceShortMessage(user.balance_micros, box.plan, box.hourly_micros, needed));
   }
   const now = nowSec();
   const updated = await updateBox(env, box, { status: "starting" }, now);

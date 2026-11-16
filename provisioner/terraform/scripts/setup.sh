@@ -129,7 +129,8 @@ apt_install build-essential git git-lfs cmake ninja-build pkg-config \
 echo "Installing Python 3.11..."
 add-apt-repository -y ppa:deadsnakes/ppa
 apt_retry update -y
-apt_install python3.11 python3.11-venv python3.11-dev
+# python3-venv too, so `python3 -m venv` (system 3.10) works as well as `python -m venv`.
+apt_install python3.11 python3.11-venv python3.11-dev python3-venv
 python3.11 -m ensurepip --upgrade
 python3.11 -m pip install --no-cache-dir --upgrade pip
 update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1

@@ -23,6 +23,7 @@ const PLANS = {
   l4: { machineType: "g2-standard-4", gpuType: "" },
   a100: { machineType: "a2-highgpu-1g", gpuType: "" },
   "a100-80": { machineType: "a2-ultragpu-1g", gpuType: "" },
+  h100: { machineType: "a3-highgpu-1g", gpuType: "" },
 };
 
 const project = process.argv[2];

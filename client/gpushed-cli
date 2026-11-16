@@ -343,10 +343,26 @@ case "$cmd" in
     region=""
     if [ "${1:-}" = --region ]; then region="${2:-}"; [ -n "$region" ] || die "Usage: gpushed plans [--region REGION]"; fi
     NO_AUTH=1 api GET "/plans${region:+?region=$region}"
-    jq -r '"Prices in \(.region_name) (\(.region))\(if .nearest then ", the region nearest you" else "" end). Default plan: \(.default)\n",
-      (.plans[] | "  \(.id | . + "        " | .[0:8])  $\(.hourly_usd)/h   \(.label)"),
-      "\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
+    jq -r '"Prices in \(.region_name) (\(.region))\(if .nearest then ", the region nearest you" else "" end). Default plan: \(.default)\n"' <<<"$API_BODY"
+    # One row per plan: id, GPU and machine, price, stopped price, minimum
+    # balance, status. Older APIs send no status: treat the plan as available.
+    jq -r '.plans[] | [
+        .id,
+        (.label | split(", ")[0] | sub("^1x NVIDIA "; "")),
+        "$\(.hourly_usd)",
+        "$\(.stopped_hourly_usd)",
+        "$\(.min_balance_usd // .hourly_usd)",
+        ((.status // "available") as $s
+          | if $s == "unavailable" then "coming soon (no GPU quota yet)"
+            elif $s == "elsewhere" then "not here; in \(.regions | join(", "))"
+            else "available" end
+          + (if .premium then ", premium" else "" end))
+      ] | @tsv' <<<"$API_BODY" |
+      awk -F'\t' 'BEGIN { printf "  %-8s %-18s %9s %9s %11s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "MIN BALANCE", "STATUS" }
+        { printf "  %-8s %-18s %9s %9s %11s  %s\n", $1, $2, $3, $4, $5, $6 }'
+    jq -r '"\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
     say "Prices include disk and IP, and differ a little by region. A stopped box costs only its disk."
+    say "Min balance is what you need to create or start a box: an hour of use, or \$100 for premium plans (\$10/h or more)."
     say "Your box goes to the nearest region with free GPUs; pick one with: gpushed up [plan] --region REGION"
     ;;
 
