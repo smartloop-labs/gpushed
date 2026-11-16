@@ -48,6 +48,9 @@ gpushed plans
 | `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4` (default) | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
+| `h100` (coming soon) | 1x H100 80 GB | a3-highgpu-1g | $13.21 |
+
+`h100` is listed but can't be created yet: it's waiting on GCP H100 quota.
 
 Prices are GCP's on-demand cost of the machine, its 100 GB SSD and IP, plus
 20%. A box is billed per second from when it's created until it's deleted. A
@@ -64,7 +67,8 @@ for your region, `gpushed plans --region asia-southeast1` for another, and
 
 **Balance.** Credit is prepaid: the minimum top-up is $10, and you can top up
 any amount above that at any time with `gpushed topup 25`. To create or start a
-box you need at least one hour of its price in your balance.
+box you need at least one hour of its price in your balance. Premium plans,
+those at $10/hour or more (`h100`), need $100.
 
 **Running out.** When your balance falls below $2 you get an email. When it's
 nearly used up, your box is **stopped** (its disk is kept) and you get another

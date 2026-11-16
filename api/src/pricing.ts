@@ -12,6 +12,9 @@ export interface Plan {
   machineType: string;
   gpuType: string; // "" when the machine type has the GPU built in (A2, G2)
   gpuCount: number;
+  // False while GCP hasn't granted us quota for it: listed in `gpushed plans`
+  // with its price, but a box can't be created on it yet.
+  available: boolean;
 }
 
 // The machine each plan runs on. scripts/gcp-prices.mjs has the same plans
@@ -23,6 +26,7 @@ export const PLANS: Record<string, Plan> = {
     machineType: "n1-standard-8",
     gpuType: "nvidia-tesla-t4",
     gpuCount: 1,
+    available: true,
   },
   l4: {
     id: "l4",
@@ -30,6 +34,7 @@ export const PLANS: Record<string, Plan> = {
     machineType: "g2-standard-4",
     gpuType: "",
     gpuCount: 0,
+    available: true,
   },
   a100: {
     id: "a100",
@@ -37,6 +42,18 @@ export const PLANS: Record<string, Plan> = {
     machineType: "a2-highgpu-1g",
     gpuType: "",
     gpuCount: 0,
+    available: true,
+  },
+  // GCP's on-demand H100 quota (GPUS_PER_GPU_FAMILY, NVIDIA_H100) is 0 in our
+  // project; flip `available` once it's granted. Spot quota doesn't count:
+  // boxes run on-demand.
+  h100: {
+    id: "h100",
+    label: "1x NVIDIA H100 80 GB, 26 vCPU, 234 GB RAM",
+    machineType: "a3-highgpu-1g",
+    gpuType: "",
+    gpuCount: 0,
+    available: false,
   },
 };
 
@@ -49,6 +66,7 @@ export const PLANS: Record<string, Plan> = {
 //     machineType: "a2-ultragpu-1g",
 //     gpuType: "",
 //     gpuCount: 0,
+//     available: true,
 //   },
 
 export const DEFAULT_PLAN = "l4";
@@ -82,6 +100,21 @@ export function planPrice(plan: Plan, region: string, premiumPct: number) {
     hourlyMicros: withPremium(gcp + disk + IP_HOURLY_USD, premiumPct),
     stoppedHourlyMicros: withPremium(disk, premiumPct),
   };
+}
+
+// Premium plans (H100 today) cost $10/hour or more, and need $100 in the
+// balance to create or start a box, so a box isn't stopped for lack of credit
+// a few minutes in. Every other plan needs an hour of use.
+export const PREMIUM_HOURLY_USD = 10;
+export const PREMIUM_MIN_BALANCE_USD = 100;
+
+export function isPremium(hourlyMicros: number): boolean {
+  return hourlyMicros >= PREMIUM_HOURLY_USD * 1e6;
+}
+
+// Balance, in micro-dollars, needed to create or start a box at this rate.
+export function requiredBalanceMicros(hourlyMicros: number): number {
+  return isPremium(hourlyMicros) ? Math.max(hourlyMicros, PREMIUM_MIN_BALANCE_USD * 1e6) : hourlyMicros;
 }
 
 // Charge for `seconds` at an hourly rate, rounded down to the micro-dollar.
