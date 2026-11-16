@@ -102,21 +102,6 @@ export function planPrice(plan: Plan, region: string, premiumPct: number) {
   };
 }
 
-// Premium plans (H100 today) cost $10/hour or more, and need $100 in the
-// balance to create or start a box, so a box isn't stopped for lack of credit
-// a few minutes in. Every other plan needs an hour of use.
-export const PREMIUM_HOURLY_USD = 10;
-export const PREMIUM_MIN_BALANCE_USD = 100;
-
-export function isPremium(hourlyMicros: number): boolean {
-  return hourlyMicros >= PREMIUM_HOURLY_USD * 1e6;
-}
-
-// Balance, in micro-dollars, needed to create or start a box at this rate.
-export function requiredBalanceMicros(hourlyMicros: number): number {
-  return isPremium(hourlyMicros) ? Math.max(hourlyMicros, PREMIUM_MIN_BALANCE_USD * 1e6) : hourlyMicros;
-}
-
 // Charge for `seconds` at an hourly rate, rounded down to the micro-dollar.
 export function chargeMicros(hourlyMicros: number, seconds: number): number {
   if (seconds <= 0 || hourlyMicros <= 0) return 0;

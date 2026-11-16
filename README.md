@@ -67,8 +67,7 @@ for your region, `gpushed plans --region asia-southeast1` for another, and
 
 **Balance.** Credit is prepaid: the minimum top-up is $10, and you can top up
 any amount above that at any time with `gpushed topup 25`. To create or start a
-box you need at least one hour of its price in your balance. Premium plans,
-those at $10/hour or more (`h100`), need $100.
+box you need at least one hour of its price in your balance.
 
 **Running out.** When your balance falls below $2 you get an email. When it's
 nearly used up, your box is **stopped** (its disk is kept) and you get another

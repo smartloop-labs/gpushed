@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { meterRate } from "../src/billing";
-import { IP_HOURLY_USD, PLANS, chargeMicros, diskHourlyUsd, gcpHourlyUsd, isPremium, planPrice, requiredBalanceMicros, withPremium } from "../src/pricing";
+import { IP_HOURLY_USD, PLANS, chargeMicros, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone } from "../src/regions";
 
 describe("pricing", () => {
@@ -34,16 +34,6 @@ describe("pricing", () => {
     expect(chargeMicros(1_000_000, 1)).toBe(277);
     expect(chargeMicros(1_000_000, 0)).toBe(0);
     expect(chargeMicros(1_000_000, -5)).toBe(0);
-  });
-
-  it("makes plans of $10/h or more premium, needing $100 to create", () => {
-    const h100 = planPrice(PLANS.h100, "us-central1", 20)!.hourlyMicros;
-    const a100 = planPrice(PLANS.a100, "us-central1", 20)!.hourlyMicros;
-    expect(isPremium(h100)).toBe(true);
-    expect(isPremium(a100)).toBe(false);
-    expect(requiredBalanceMicros(h100)).toBe(100_000_000);
-    expect(requiredBalanceMicros(a100)).toBe(a100); // just an hour of use
-    expect(requiredBalanceMicros(150_000_000)).toBe(150_000_000); // never less than an hour
   });
 
   it("lists H100 but doesn't offer it until GCP grants quota", () => {
