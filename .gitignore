@@ -24,3 +24,10 @@ VERSION
 dist/
 build/
 _site/
+
+# Local SSH keys
+box_ssh_key
+box_ssh_key.pub
+
+# Docent local state
+.docent/
