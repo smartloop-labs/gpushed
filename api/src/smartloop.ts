@@ -10,6 +10,7 @@ export interface Credits {
   plan_micros: number; // the plan's monthly credits left
   wallet_micros: number; // top-ups
   available_micros: number; // both together: what a box can spend
+  unlimited?: boolean; // GPU time is free and never stops (a smartloop Partner)
   plan?: string; // the smartloop plan billing shows: free, paid (Pro), plus, max, partner
 }
 
