@@ -44,16 +44,16 @@ export const PLANS: Record<string, Plan> = {
     gpuCount: 0,
     available: true,
   },
-  // GCP's on-demand H100 quota (GPUS_PER_GPU_FAMILY, NVIDIA_H100) is 0 in our
-  // project; flip `available` once it's granted. Spot quota doesn't count:
-  // boxes run on-demand.
+  // On-demand H100 quota (GPUS_PER_GPU_FAMILY, NVIDIA_H100) is granted in
+  // asia-east1 only, so that's where it's offered (capacity.generated.ts).
+  // Spot quota doesn't count: boxes run on-demand.
   h100: {
     id: "h100",
     label: "1x NVIDIA H100 80 GB, 26 vCPU, 234 GB RAM",
     machineType: "a3-highgpu-1g",
     gpuType: "",
     gpuCount: 0,
-    available: false,
+    available: true,
   },
 };
 

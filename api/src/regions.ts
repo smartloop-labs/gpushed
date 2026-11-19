@@ -1,11 +1,16 @@
 // The GCP regions boxes can run in, and how to pick one for a user.
 //
-// A new box goes to the region nearest the user (from Cloudflare's estimate
-// of where the request came from), then the next nearest, and so on, until
-// one has GPU capacity. Each region needs a subnet (infra/bootstrap), GPU
-// quota, and prices in regions.generated.ts.
+// A plan is offered in a region that has its price, a zone with its machine,
+// and GPU quota for it (capacity.generated.ts). A new box tries first the
+// regions with quota to spare (not taken by our live boxes), nearest the user
+// first (Cloudflare's estimate of where the request came from), then the
+// full ones, in case the quota table is stale. Zones that just ran out of the
+// machine are tried last within a region (zone_stockouts). Each region needs
+// a subnet (infra/bootstrap), and entries in the generated tables.
 
+import { PLAN_CAPACITY } from "./capacity.generated";
 import { REGION_PRICES } from "./regions.generated";
+import { PLAN_ZONES } from "./zones.generated";
 
 export interface Region {
   id: string;
@@ -20,6 +25,7 @@ export const REGIONS: Region[] = [
   { id: "us-west1", name: "Oregon, USA", lat: 45.6, lon: -121.18 },
   { id: "europe-west4", name: "Netherlands", lat: 53.44, lon: 6.84 },
   { id: "asia-southeast1", name: "Singapore", lat: 1.35, lon: 103.82 },
+  { id: "asia-east1", name: "Taiwan", lat: 24.05, lon: 120.52 },
 ];
 
 // Used when we can't tell where a request came from.
@@ -50,6 +56,34 @@ export function byDistance(regions: Region[], lat?: number, lon?: number): Regio
     return [...regions].sort((a, b) => Number(b.id === FALLBACK_REGION) - Number(a.id === FALLBACK_REGION));
   }
   return [...regions].sort((a, b) => distanceKm(lat, lon, a.lat, a.lon) - distanceKm(lat, lon, b.lat, b.lon));
+}
+
+// GPUs of the plan our project may run in the region (its GCP quota).
+export function capacity(planId: string, regionId: string): number {
+  return PLAN_CAPACITY[planId]?.[regionId] ?? 0;
+}
+
+// Enabled regions where a new box of the plan can go: priced, with a zone
+// offering its machine, and with GPU quota for it.
+export function offeredRegions(enabled: string | undefined, planId: string): Region[] {
+  return enabledRegions(enabled, planId).filter(
+    (r) => (PLAN_ZONES[planId]?.[r.id] ?? []).length > 0 && capacity(planId, r.id) > 0,
+  );
+}
+
+// The order to try regions for a new box of the plan: those with GPUs to
+// spare first (quota less what `inUse` says our live boxes hold there), then
+// the full ones; nearest first within each.
+export function byAvailability(
+  regions: Region[],
+  planId: string,
+  inUse: Record<string, number>,
+  lat?: number,
+  lon?: number,
+): Region[] {
+  const spare = (r: Region) => capacity(planId, r.id) - (inUse[r.id] ?? 0) > 0;
+  const near = byDistance(regions, lat, lon);
+  return [...near.filter(spare), ...near.filter((r) => !spare(r))];
 }
 
 // Where Cloudflare thinks the request came from.

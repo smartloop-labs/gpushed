@@ -56,11 +56,13 @@ Prices are GCP's on-demand cost of the machine, its 100 GB SSD and IP, plus
 20%. A box is billed per second from when it's created until it's deleted. A
 stopped box costs only its disk (about $0.03/hour).
 
-**Regions.** A new box goes to the region nearest you (from Cloudflare's
-estimate of where your request comes from): us-central1 (Iowa), us-east1
-(South Carolina), us-west1 (Oregon), europe-west4 (Netherlands) or
-asia-southeast1 (Singapore). If that region is out of GPUs it tries the next
-nearest, and it's billed at the price of the region it lands in. Europe is
+**Regions.** Boxes run in us-central1 (Iowa), us-east1 (South Carolina),
+us-west1 (Oregon), europe-west4 (Netherlands), asia-southeast1 (Singapore)
+and asia-east1 (Taiwan); each GPU is offered where we have quota for it
+(H100: Taiwan). A new box goes to a region with GPUs to spare, nearest you
+first (from Cloudflare's estimate of where your request comes from), and
+only then to one that looks full. It's billed at the price of the region it
+lands in. Europe is
 about 3-5% above the US and Singapore 9-23%; `gpushed plans` shows the prices
 for your region, `gpushed plans --region asia-southeast1` for another, and
 `gpushed up l4 --region europe-west4` picks the region yourself.
