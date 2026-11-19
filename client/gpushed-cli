@@ -18,16 +18,33 @@ SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 
 say() { printf '%s\n' "$*"; }
 die() { printf '❌ %s\n' "$*" >&2; exit 1; }
 
+# gpushed green (#84e05a, the site's accent): exact where the terminal does
+# 24-bit colour, else the nearest of the 256.
+case "${COLORTERM:-}" in
+  truecolor|24bit) GREEN=$'\e[38;2;132;224;90m' ;;
+  *) GREEN=$'\e[38;5;113m' ;;
+esac
+
 # Pick one of OPTIONS with the arrow keys (or j/k, or its number) and Enter;
 # sets CHOICE to its index. Esc (or q) cancels: returns 1 with the menu
 # cleared. LABEL names the pick once it collapses to one line
-# ("✔ LABEL: option"). Needs a terminal; callers fall back otherwise.
+# ("✔ LABEL: option"). Uses gum's menu when the image has it, else draws
+# its own. Needs a terminal; callers fall back otherwise.
 choose() {
   local label=$1; shift
-  local options=("$@") n=$# i=0 key rest j cancelled=0
+  local options=("$@") n=$# i=0 key rest j cancelled=0 picked
+  if command -v gum >/dev/null 2>&1 && [ -z "${GPUSHED_NO_GUM:-}" ]; then
+    # Esc and Ctrl-C make gum exit non-zero: cancelled.
+    picked=$(gum choose --cursor "❯ " --cursor.foreground "#84e05a" \
+      --selected.foreground "#84e05a" --item.foreground "" -- "${options[@]}") || return 1
+    for j in "${!options[@]}"; do [ "${options[j]}" = "$picked" ] && i=$j; done
+    printf '%s✔\e[0m %s: %s\n' "$GREEN" "$label" "${options[i]%%  *}"
+    CHOICE=$i
+    return 0
+  fi
   draw() {
     for j in "${!options[@]}"; do
-      if [ "$j" -eq "$i" ]; then printf '\e[2K  \e[1;35m❯ %s\e[0m\n' "${options[j]}"
+      if [ "$j" -eq "$i" ]; then printf '\e[2K  %s\e[1m❯ %s\e[0m\n' "$GREEN" "${options[j]}"
       else printf '\e[2K    %s\n' "${options[j]}"; fi
     done
   }
@@ -61,7 +78,7 @@ choose() {
     printf '\e[?25h'; trap - INT
     return 1
   fi
-  printf '\e[2K\e[32m✔\e[0m %s: %s\n' "$label" "${options[i]%%  *}"   # collapse to the pick
+  printf '\e[2K%s✔\e[0m %s: %s\n' "$GREEN" "$label" "${options[i]%%  *}"   # collapse to the pick
   printf '\e[?25h'; trap - INT
   CHOICE=$i
 }
