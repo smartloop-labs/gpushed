@@ -322,8 +322,7 @@
   .feature p { margin: 0; color: var(--ink-2); font-size: 15.5px; }
 
   /* pricing */
-  .plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-  @media (max-width: 1100px) { .plans { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .plan { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; }
   .plan.hot { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .plan .tag { font: 600 12px var(--sans); color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; height: 18px; }
@@ -689,14 +688,6 @@ name, memory.total [MiB]
       <h2>Simple hourly GPU prices, charged by the second.</h2>
       <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Paid from your smartloop credits: your plan’s monthly credits first, then any you add (from $10). US prices shown; Europe and Asia cost a little more. The H100 runs in Taiwan (asia-east1).</p>
       <div class="plans">
-        <div class="plan">
-          <div class="tag">Budget</div>
-          <h3>Tesla T4</h3>
-          <div class="spec">16 GB · 8 vCPU · 30 GB RAM</div>
-          <p class="good">Notebooks, Stable Diffusion, learning CUDA.</p>
-          <div class="price">$0.91<small> / hour</small></div>
-          <div class="id">gpushed up t4</div>
-        </div>
         <div class="plan hot">
           <div class="tag">Default · best value</div>
           <h3>L4</h3>
