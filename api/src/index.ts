@@ -1,10 +1,11 @@
-import { type Box, type User, credit, getBox, meterBox, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
+import { type Box, type User, getBox, meterBox, recordTopup, refreshBalance, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
 import { PLAN_ZONES } from "./zones.generated";
-import { type CheckoutSession, createCheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
+import { grantCredits, topupCheckoutUrl } from "./smartloop";
+import { type CheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
 import { HttpError, boxId, isZone, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
 
 const SSH_USER = "boxuser";
@@ -143,6 +144,19 @@ function boxView(box: Box) {
     progress: box.progress ?? null,
     created_at: box.created_at,
   };
+}
+
+// The user with credits read fresh from smartloop (plan credits left plus the
+// wallet), which also stores them. If smartloop can't be reached, the last
+// stored figure is used, so a hiccup there doesn't take gpushed down.
+async function withCredits(env: Env, user: User): Promise<User> {
+  try {
+    const credits = await refreshBalance(env, user.id, nowSec());
+    return { ...user, balance_micros: credits.available_micros };
+  } catch (e) {
+    console.error(`reading credits for ${user.id} failed; using the stored balance`, e);
+    return user;
+  }
 }
 
 function account(env: Env, user: User) {
@@ -301,7 +315,7 @@ route("GET", "/plans", async (req, env) => {
 });
 
 route("GET", "/me", async (req, env) => {
-  const user = await authUser(req, env);
+  const user = await withCredits(env, await authUser(req, env));
   const box = await activeBox(env, user.id);
   return json({ ...account(env, user), box: box ? boxView(box) : null });
 });
@@ -351,7 +365,7 @@ route("POST", "/topup", async (req, env) => {
   const amount = Number(amount_usd ?? min);
   if (!Number.isFinite(amount) || amount < min) throw new HttpError(400, `the minimum top-up is $${min}`);
   if (amount > 5000) throw new HttpError(400, "the maximum top-up is $5000");
-  if (!env.STRIPE_SECRET_KEY) throw new HttpError(503, "payments are not configured");
+  if (!env.SMARTLOOP_SERVICE_SECRET) throw new HttpError(503, "payments are not configured");
   // The web app can have Stripe send people back to it (only to APP_ORIGINS).
   let back: URL | null = null;
   if (return_url) {
@@ -367,13 +381,15 @@ route("POST", "/topup", async (req, env) => {
     u.searchParams.set("topup", status);
     return u.href;
   };
-  const url = await createCheckoutSession(env.STRIPE_SECRET_KEY, {
-    userId: user.id,
-    email: user.email,
-    amountCents: Math.round(amount * 100),
-    successUrl: back ? withStatus("done") : `${env.PUBLIC_URL}/topup/done`,
-    cancelUrl: back ? withStatus("cancelled") : `${env.PUBLIC_URL}/topup/cancelled`,
-  });
+  // Charged to the account's smartloop customer (one billing history for
+  // plans and credits); smartloop adds the credits when Stripe confirms.
+  const url = await topupCheckoutUrl(
+    env,
+    user.id,
+    amount,
+    back ? withStatus("done") : `${env.PUBLIC_URL}/topup/done`,
+    back ? withStatus("cancelled") : `${env.PUBLIC_URL}/topup/cancelled`,
+  );
   return json({ url });
 });
 
@@ -389,9 +405,24 @@ route("POST", "/stripe/webhook", async (req, env) => {
   const event = JSON.parse(payload) as { type: string; data: { object: CheckoutSession } };
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     const s = event.data.object;
+    if (s.metadata?.app !== "gpushed") return json({ received: true });
     const userId = s.metadata?.user_id ?? s.client_reference_id;
     const cents = topupCents(s);
-    if (userId && cents > 0 && (await credit(env, userId, cents * 10_000, "topup", `stripe:${s.id}`, nowSec()))) {
+    if (!userId || cents <= 0) return json({ received: true });
+    const now = nowSec();
+    if (s.metadata?.kind !== "topup") {
+      // A checkout gpushed opened itself before credits moved to smartloop:
+      // nobody else will credit it, so add it to the wallet here (once, by
+      // its Stripe session). One already credited the old way is in the
+      // balance that was moved over, and is skipped.
+      const seen = await env.DB.prepare("SELECT 1 FROM ledger WHERE ref = ?1").bind(`stripe:${s.id}`).first();
+      if (seen) return json({ received: true });
+      await grantCredits(env, userId, cents * 10_000, "topup", `topup:stripe:${s.id}`);
+    }
+    // smartloop's own webhook adds the credits for a top-up it opened; here
+    // it only goes into gpushed's history, which drives the welcome email.
+    if (await recordTopup(env, userId, cents * 10_000, `stripe:${s.id}`, now)) {
+      await refreshBalance(env, userId, now).catch((e) => console.error(`refreshing ${userId} failed`, e));
       await welcomeOnFirstTopup(env, userId);
     }
   }
@@ -431,8 +462,9 @@ route("POST", "/box", async (req, env) => {
   const premium = numVar(env.PREMIUM_PCT, 20);
   // At least an hour at the price shown for the first region (what plans shows).
   const price = planPrice(plan, candidates[0].id, premium)!;
-  if (user.balance_micros < price.hourlyMicros) {
-    throw new HttpError(402, balanceShortMessage(user.balance_micros, plan.id, price.hourlyMicros));
+  const { balance_micros: available } = await withCredits(env, user);
+  if (available < price.hourlyMicros) {
+    throw new HttpError(402, balanceShortMessage(available, plan.id, price.hourlyMicros));
   }
   const now = nowSec();
   const box: Box = {
@@ -487,8 +519,9 @@ route("POST", "/box/start", async (req, env) => {
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");
   if (box.status !== "stopped") throw new HttpError(409, `box is ${box.status}; only a stopped box can be started`);
-  if (user.balance_micros < box.hourly_micros) {
-    throw new HttpError(402, balanceShortMessage(user.balance_micros, box.plan, box.hourly_micros));
+  const { balance_micros: available } = await withCredits(env, user);
+  if (available < box.hourly_micros) {
+    throw new HttpError(402, balanceShortMessage(available, box.plan, box.hourly_micros));
   }
   const now = nowSec();
   const updated = await updateBox(env, box, { status: "starting" }, now);

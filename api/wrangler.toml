@@ -47,6 +47,8 @@ EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
 #   RESEND_API_KEY         sends balance warnings
 #   GITHUB_TOKEN           fine-grained PAT, Actions: read & write on GITHUB_REPO
 #   PROVISIONER_SECRET     random string, also stored as a GitHub Actions secret
+#   SMARTLOOP_SERVICE_SECRET  the smartloop API's GPUSHED_SERVICE_SECRET: credits are
+#                          spent and added through it (one wallet with smartloop)
 
 [env.dev]
 name = "gpushed-api-dev"
