@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gpushed: NVIDIA GPUs for your Mac (A100, L4, T4 with CUDA)</title>
-<meta name="description" content="Run CUDA from your Mac. One command gets you a dedicated NVIDIA A100, L4 or Tesla T4 for LLM fine-tuning, inference, Stable Diffusion and CUDA development. Billed per second from $0.88/hour, with no cloud account to set up.">
+<title>gpushed: NVIDIA GPUs for your Mac (H100, A100, L4, T4 with CUDA)</title>
+<meta name="description" content="Run CUDA from your Mac. One command gets you a dedicated NVIDIA H100, A100, L4 or Tesla T4 for LLM fine-tuning, inference, Stable Diffusion and CUDA development. Billed per second from $0.88/hour, with no cloud account to set up.">
 <link rel="canonical" href="https://gpushed.dev/">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#fbfbf8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d0f0c" media="(prefers-color-scheme: dark)">
 <meta property="og:site_name" content="gpushed">
 <meta property="og:title" content="gpushed: your dedicated NVIDIA GPU, on your Mac">
-<meta property="og:description" content="Fine-tune LLMs, serve models and write CUDA from your Mac. A dedicated A100, L4 or T4, ready in minutes and billed per second.">
+<meta property="og:description" content="Fine-tune LLMs, serve models and write CUDA from your Mac. A dedicated H100, A100, L4 or T4, ready in minutes and billed per second.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://gpushed.dev/">
 <meta property="og:image" content="https://gpushed.dev/og.png">
@@ -20,7 +20,7 @@
 <meta property="og:image:alt" content="gpushed: Your dedicated NVIDIA GPU, on your Mac. A100, L4, Tesla T4. Mac only, Apple container.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="gpushed: your dedicated NVIDIA GPU, on your Mac">
-<meta name="twitter:description" content="Fine-tune LLMs, serve models and write CUDA from your Mac. A dedicated A100, L4 or T4, ready in minutes and billed per second.">
+<meta name="twitter:description" content="Fine-tune LLMs, serve models and write CUDA from your Mac. A dedicated H100, A100, L4 or T4, ready in minutes and billed per second.">
 <meta name="twitter:image" content="https://gpushed.dev/og.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2311140f'/%3E%3Cpath d='M8 21V11h16v10M12 11V8m4 3V8m4 3V8M12 24v-3m4 3v-3m4 3v-3' stroke='%2384e05a' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preload" href="/fonts/MesloLGM-Bold.woff2" as="font" type="font/woff2" crossorigin>
@@ -43,14 +43,15 @@
       "url": "https://gpushed.dev/",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS 26 or later (Apple silicon)",
-      "description": "A command-line tool that gives your Mac a dedicated NVIDIA GPU in the cloud (A100, L4 or Tesla T4) with the driver, CUDA 12.6, Python, Node.js and Rust preinstalled. Prepaid and billed per second.",
+      "description": "A command-line tool that gives your Mac a dedicated NVIDIA GPU in the cloud (H100, A100, L4 or Tesla T4) with the driver, CUDA 12.6, Python, Node.js and Rust preinstalled. Prepaid and billed per second.",
       "publisher": { "@id": "https://smartloop.ai/#org" },
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "downloadUrl": "https://gpushed.dev/install.sh",
       "offers": [
         { "@type": "Offer", "name": "NVIDIA L4 24 GB", "price": "0.88", "priceCurrency": "USD", "description": "Per hour, billed per second" },
         { "@type": "Offer", "name": "NVIDIA Tesla T4 16 GB", "price": "0.91", "priceCurrency": "USD", "description": "Per hour, billed per second" },
-        { "@type": "Offer", "name": "NVIDIA A100 40 GB", "price": "4.44", "priceCurrency": "USD", "description": "Per hour, billed per second" }
+        { "@type": "Offer", "name": "NVIDIA A100 40 GB", "price": "4.44", "priceCurrency": "USD", "description": "Per hour, billed per second" },
+        { "@type": "Offer", "name": "NVIDIA H100 80 GB", "price": "15.29", "priceCurrency": "USD", "description": "Per hour, billed per second; Taiwan (asia-east1)" }
       ]
     },
     {
@@ -318,7 +319,8 @@
   .feature p { margin: 0; color: var(--ink-2); font-size: 15.5px; }
 
   /* pricing */
-  .plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1100px) { .plans { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .plan { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; }
   .plan.hot { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .plan .tag { font: 600 12px var(--sans); color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; height: 18px; }
@@ -467,7 +469,7 @@
         <span class="live" aria-hidden="true"></span>
       </span>
       <h1>Your dedicated NVIDIA GPU, <em>on your Mac</em>.</h1>
-      <p class="lede">Your Mac can't run CUDA. <strong>Now it can.</strong> Get a whole NVIDIA A100, L4 or Tesla T4 for fine-tuning, inference and research with one command. Ready in minutes, billed per second, deleted when you're done.</p>
+      <p class="lede">Your Mac can't run CUDA. <strong>Now it can.</strong> Get a whole NVIDIA H100, A100, L4 or Tesla T4 for fine-tuning, inference and research with one command. Ready in minutes, billed per second, deleted when you're done.</p>
       <ul class="stack" aria-label="Preinstalled on every box">
         <li class="label">Preinstalled</li>
         <li>NVIDIA driver</li>
@@ -632,6 +634,7 @@ name, memory.total [MiB]
           <tr><td>Serving a 7B–8B model with vLLM</td><td><code>l4</code></td><td>fp16 weights fit, with headroom for the KV cache.</td></tr>
           <tr><td>Stable Diffusion, SDXL, ComfyUI</td><td><code>t4</code> / <code>l4</code></td><td>Both run SDXL in fp16; the L4 is noticeably faster.</td></tr>
           <tr><td>13B+ fine-tuning, long contexts, big batches</td><td><code>a100</code></td><td>40 GB of HBM2 and far more memory bandwidth.</td></tr>
+          <tr><td>30B–70B models, full fine-tuning, fastest training</td><td><code>h100</code></td><td>80 GB of HBM3, FP8, and several times the A100's throughput.</td></tr>
         </tbody>
       </table>
     </div>
@@ -681,7 +684,7 @@ name, memory.total [MiB]
     <div class="wrap">
       <div class="kicker">Pricing</div>
       <h2>Simple hourly GPU prices, charged by the second.</h2>
-      <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Prepay from $10 and top up whenever you like. US prices shown; Europe and Asia cost a little more.</p>
+      <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Paid from your smartloop credits: your plan’s monthly credits first, then any you add (from $10). US prices shown; Europe and Asia cost a little more. The H100 runs in Taiwan (asia-east1).</p>
       <div class="plans">
         <div class="plan">
           <div class="tag">Budget</div>
@@ -707,9 +710,17 @@ name, memory.total [MiB]
           <div class="price">$4.44<small> / hour</small></div>
           <div class="id">gpushed up a100</div>
         </div>
+        <div class="plan">
+          <div class="tag">Frontier · Taiwan</div>
+          <h3>H100 80 GB</h3>
+          <div class="spec">80 GB · 26 vCPU · 234 GB RAM</div>
+          <p class="good">30B–70B models, full fine-tuning.</p>
+          <div class="price">$15.29<small> / hour</small></div>
+          <div class="id">gpushed up h100</div>
+        </div>
       </div>
       <div class="billing">
-        <div><strong>$10 minimum top-up</strong>About 2¼ hours on an A100, or 11 on an L4.</div>
+        <div><strong>Add credits from $10</strong>About 2¼ hours on an A100, or 11 on an L4. They never expire.</div>
         <div><strong>Stopped boxes</strong>About $0.03/hour for the disk while compute is paused.</div>
         <div><strong>Running low</strong>Email at $2. Box paused before $0, deleted after 24 h unfunded.</div>
       </div>
