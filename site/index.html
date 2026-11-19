@@ -7,8 +7,7 @@
 <meta name="description" content="Run CUDA from your Mac. One command gets you a dedicated NVIDIA H100, A100, L4 or Tesla T4 for LLM fine-tuning, inference, Stable Diffusion and CUDA development. Billed per second from $0.88/hour, with no cloud account to set up.">
 <link rel="canonical" href="https://gpushed.dev/">
 <meta name="robots" content="index, follow">
-<meta name="theme-color" content="#fbfbf8" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0d0f0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0d0f0c">
 <meta property="og:site_name" content="gpushed">
 <meta property="og:title" content="gpushed: your dedicated NVIDIA GPU, on your Mac">
 <meta property="og:description" content="Fine-tune LLMs, serve models and write CUDA from your Mac. A dedicated H100, A100, L4 or T4, ready in minutes and billed per second.">
@@ -71,7 +70,10 @@
 <script>
   // Apply a saved theme before first paint, so the page doesn't flash.
   if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("js-anim");
-  try { var t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  // Dark by default (it's a terminal tool); light only when the toggle picked it.
+  var t = null;
+  try { t = localStorage.getItem("theme"); } catch (e) {}
+  document.documentElement.dataset.theme = t === "light" ? "light" : "dark";
 </script>
 <style>
   @font-face { font-family: "Meslo LG M"; src: url("/fonts/MesloLGM-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
@@ -102,7 +104,8 @@
     --sans: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
     --display: "Meslo LG M", ui-monospace, "SF Mono", Menlo, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   }
-  /* Dark follows the system unless the toggle picked a theme (data-theme on <html>). */
+  /* The page starts dark (data-theme="dark" on <html>, set before paint); the
+     toggle can pick light. Without JavaScript it follows the system. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #0d0f0c;
@@ -513,8 +516,8 @@ name, memory.total [MiB]
     <div class="stats" role="list">
       <div class="stat" role="listitem"><b>Minutes</b><span>from <code>gpushed&nbsp;up</code> to SSH</span></div>
       <div class="stat" role="listitem"><b>$0.88<small>/h</small></b><span>for a 24 GB L4, per second</span></div>
-      <div class="stat" role="listitem"><b>16–40<small> GB</small></b><span>dedicated GPU memory</span></div>
-      <div class="stat" role="listitem"><b>5</b><span>regions across US, Europe, Asia</span></div>
+      <div class="stat" role="listitem"><b>16–80<small> GB</small></b><span>dedicated GPU memory</span></div>
+      <div class="stat" role="listitem"><b>6</b><span>regions across US, Europe, Asia</span></div>
     </div>
   </div>
 
