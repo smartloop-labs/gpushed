@@ -177,16 +177,21 @@ function boxView(box: Box) {
 async function withCredits(env: Env, user: User): Promise<User> {
   try {
     const credits = await refreshBalance(env, user.id, nowSec());
-    return { ...user, balance_micros: credits.available_micros };
+    return { ...user, balance_micros: credits.available_micros, plan: credits.plan };
   } catch (e) {
     console.error(`reading credits for ${user.id} failed; using the stored balance`, e);
     return user;
   }
 }
 
+// Plan names as smartloop billing shows them.
+const PLAN_LABELS: Record<string, string> = { free: "Free", paid: "Pro", plus: "Plus", max: "Max", partner: "Partner" };
+
 function account(env: Env, user: User) {
   return {
     email: user.email,
+    plan: user.plan ?? null,
+    plan_label: user.plan ? (PLAN_LABELS[user.plan] ?? user.plan) : null,
     balance_usd: usd(user.balance_micros),
     balance_micros: user.balance_micros,
     low_balance: user.balance_micros > 0 && user.balance_micros <= numVar(env.LOW_BALANCE_USD, 2) * 1e6,
@@ -239,7 +244,7 @@ function html(title: string, body: string, mark = ""): Response {
 // session token (see authUser).
 route("POST", "/auth/smartloop", async (req, env) => {
   const { access_token } = await readJson<{ access_token?: string }>(req);
-  const user = await smartloopUser(env, String(access_token ?? ""));
+  const user = await withCredits(env, await smartloopUser(env, String(access_token ?? "")));
   const token = "gp_" + randomToken();
   await env.DB.prepare("INSERT INTO api_tokens (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)")
     .bind(await sha256Hex(token), user.id, nowSec())
@@ -300,8 +305,9 @@ route("POST", "/auth/cli/poll", async (req, env) => {
   // One token per approval: delete first, so a second poll can't get another.
   const del = await env.DB.prepare("DELETE FROM cli_logins WHERE device_hash = ?1 AND user_id IS NOT NULL").bind(hash).run();
   if (!del.meta.changes) throw new HttpError(410, "the sign-in expired; run gpushed login again");
-  const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?1").bind(row.user_id).first<User>();
-  if (!user) throw new HttpError(410, "the sign-in expired; run gpushed login again");
+  const stored = await env.DB.prepare("SELECT * FROM users WHERE id = ?1").bind(row.user_id).first<User>();
+  if (!stored) throw new HttpError(410, "the sign-in expired; run gpushed login again");
+  const user = await withCredits(env, stored);
   const token = "gp_" + randomToken();
   await env.DB.prepare("INSERT INTO api_tokens (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)")
     .bind(await sha256Hex(token), user.id, nowSec())

@@ -44,6 +44,8 @@ export interface User {
   low_balance_warned: number;
   exhausted_at: number | null;
   wallet_migrated_at?: number | null;
+  // Not stored: the smartloop plan, when withCredits has just read it.
+  plan?: string;
   created_at: number;
 }
 
