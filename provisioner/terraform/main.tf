@@ -54,6 +54,11 @@ resource "google_compute_instance" "box" {
     ssh-keys               = "${var.ssh_user}:${var.ssh_public_key} gpushed"
     block-project-ssh-keys = "true"
     enable-oslogin         = "FALSE"
+    # Read by the idle watcher (scripts/startup-wrapper.sh).
+    gpushed-api          = var.api_url
+    gpushed-box-id       = var.box_id
+    gpushed-idle-token   = var.idle_token
+    gpushed-idle-minutes = tostring(var.idle_minutes)
   }
 
   tags = ["gpushed-box"]

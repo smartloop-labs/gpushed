@@ -1,12 +1,12 @@
-import { type Box, type User, getBox, meterBox, recordTopup, refreshBalance, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
+import { type Box, type User, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
-import { type ProvisionAction, dispatchProvision } from "./external";
+import { type ProvisionAction, dispatchProvision, sendEmail } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
 import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone, requestLocation } from "./regions";
 import { PLAN_ZONES } from "./zones.generated";
 import { grantCredits, topupCheckoutUrl } from "./smartloop";
 import { type CheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
-import { HttpError, boxId, isZone, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
+import { HttpError, boxId, hmacSha256Hex, isZone, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
 
 const SSH_USER = "boxuser";
 // How long a zone that ran out of a machine type is tried last for new boxes.
@@ -633,7 +633,54 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
     plan: box.plan,
     // Zones that just ran out of this machine type: try them last.
     avoid_zones: box.zone ? [] : await recentStockouts(env, plan.machineType),
+    // For the idle watcher on the box (provisioner/terraform/scripts): the
+    // token that lets it stop this box, and after how many idle minutes.
+    idle_token: await idleToken(env, box.id),
+    idle_minutes: idleMinutes(env),
   });
+});
+
+// A box may stop itself, and nothing else, with this token (it lives in the
+// VM's metadata, readable by its owner). Derived, so nothing is stored.
+async function idleToken(env: Env, id: string): Promise<string> {
+  if (!env.PROVISIONER_SECRET) throw new HttpError(500, "PROVISIONER_SECRET is not set");
+  return hmacSha256Hex(env.PROVISIONER_SECRET, `idle:${id}`);
+}
+
+// Minutes of an idle GPU (nothing running on it, nobody connected) before the
+// box stops itself; 0 turns it off.
+function idleMinutes(env: Env): number {
+  return Math.max(0, Math.floor(numVar(env.IDLE_STOP_MINUTES, 5)));
+}
+
+// The box's idle watcher: its GPU has been idle for idle_minutes, so stop it
+// like `gpushed stop` would (its disk is kept and billed) and tell the owner.
+route("POST", "/boxes/:id/idle", async (req, env, p) => {
+  const box = await getBox(env, p.id);
+  const got = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+  if (!box || !timingSafeEqual(got, await idleToken(env, p.id))) throw new HttpError(401, "unauthorized");
+  if (box.status !== "running") return json({ stopped: false, status: box.status });
+  const now = nowSec();
+  const stopping = await updateBox(env, box, { status: "stopping" }, now);
+  if (!(await dispatchOrRevert(env, stopping, "stop", "running", now))) {
+    throw new HttpError(503, "could not reach the provisioner; try again shortly");
+  }
+  const owner = await env.DB.prepare("SELECT email FROM users WHERE id = ?1").bind(box.user_id).first<{ email: string }>();
+  if (owner) {
+    try {
+      await sendEmail(
+        env,
+        owner.email,
+        "gpushed: your idle GPU box was stopped",
+        `Your box ${box.id} had nothing running on its GPU and nobody connected for ${idleMinutes(env)} minutes, ` +
+          `so it has been stopped to save you money. Its disk and files are kept (billed at the stopped rate).\n\n` +
+          `Resume it with: gpushed start\n`,
+      );
+    } catch (e) {
+      console.error(`idle-stop email for ${box.id} failed`, e);
+    }
+  }
+  return json({ stopped: true });
 });
 
 async function recentStockouts(env: Env, machineType: string): Promise<string[]> {

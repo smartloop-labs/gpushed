@@ -490,6 +490,10 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 4.8v.1" stroke-linecap="round"/></svg>
         <span>Runs in Apple's native <code>container</code> runtime. No cloud account, Terraform or drivers to set up.</span>
       </div>
+      <div class="req">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 4.5 6 8l-3.5 3.5M8 11.5h5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Short on keystrokes? <code>gs</code> is an alias for <code>gpushed</code>: <code>gs up</code>, <code>gs ssh</code>.</span>
+      </div>
     </div>
 
     <div class="term" role="img" aria-label="Terminal: gpushed up creates an L4 box with CUDA ready; nvidia-smi shows the GPU">
@@ -502,7 +506,7 @@
 <span class="t-dim">📦 Prebuilt image: CUDA 12.6, Python 3.11, Node, Rust</span>
 <span class="t-g">🎉 Your GPU box is ready.</span>
 
-<span class="t-cmd">gpushed ssh</span>
+<span class="t-cmd">gs ssh</span>        <span class="t-dim"># gs = gpushed</span>
 <span class="t-dim">boxuser@gp-b7k2:~$</span> nvidia-smi --query-gpu=name,memory.total --format=csv
 name, memory.total [MiB]
 <span class="t-a">NVIDIA L4, 23034 MiB</span>
@@ -763,7 +767,7 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>Can I keep my data between sessions?</summary>
-            <p>Yes. <code>gpushed stop</code> pauses the GPU and keeps the disk for about $0.03/hour; <code>gpushed start</code> brings it back. <code>gpushed down</code> deletes the box and its disk for good.</p>
+            <p>Yes. <code>gpushed stop</code> pauses the GPU and keeps the disk for about $0.03/hour; <code>gpushed start</code> brings it back. <code>gpushed down</code> deletes the box and its disk for good. A box whose GPU sits idle, with nothing running on it and nobody connected, for 5 minutes stops itself, so a forgotten box doesn't run up a bill.</p>
           </details>
           <details>
             <summary>How is it billed?</summary>

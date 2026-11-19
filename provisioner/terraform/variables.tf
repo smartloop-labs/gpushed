@@ -67,3 +67,22 @@ variable "desired_status" {
   type        = string
   default     = "RUNNING"
 }
+
+variable "api_url" {
+  description = "The gpushed API, for the box's idle watcher (scripts/startup-wrapper.sh)"
+  type        = string
+  default     = ""
+}
+
+variable "idle_token" {
+  description = "Lets the box stop itself through the API when its GPU is idle; empty turns the watcher off"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "idle_minutes" {
+  description = "Minutes of an idle GPU before the box stops itself; 0 turns it off"
+  type        = number
+  default     = 5
+}

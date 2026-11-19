@@ -88,10 +88,11 @@ gcloud config set project "$GCP_PROJECT" --quiet >/dev/null 2>&1
 cd "$TF_DIR"
 # Each region has a subnet named gpushed-<region> (infra/bootstrap); region,
 # zone and subnetwork are passed per apply since a new box may try several.
-jq -n --argjson s "$SPEC" --arg project "$GCP_PROJECT" '{
+jq -n --argjson s "$SPEC" --arg project "$GCP_PROJECT" --arg api "$GPUSHED_API" '{
   project_id: $project, box_id: $s.id, machine_type: $s.machine_type,
   gpu_type: $s.gpu_type, gpu_count: $s.gpu_count,
-  ssh_user: $s.ssh_user, ssh_public_key: $s.ssh_public_key
+  ssh_user: $s.ssh_user, ssh_public_key: $s.ssh_public_key,
+  api_url: $api, idle_token: ($s.idle_token // ""), idle_minutes: ($s.idle_minutes // 5)
 }' > box.auto.tfvars.json
 
 terraform init -input=false -reconfigure \
