@@ -33,3 +33,13 @@ describe("isZone", () => {
     for (const z of ["us-west1", "us-west1-ab", "US-WEST1-A", "us-west1-a; DROP", "", 7, null, undefined]) expect(isZone(z)).toBe(false);
   });
 });
+
+describe("billingUrl", () => {
+  it("is the web app's Billing page on the first app origin", async () => {
+    const { billingUrl } = await import("../src/index");
+    expect(billingUrl({ APP_ORIGINS: "https://app.smartloop.ai, http://localhost:3000" })?.href).toBe(
+      "https://app.smartloop.ai/settings/billing",
+    );
+    expect(billingUrl({ APP_ORIGINS: "" })).toBeNull();
+  });
+});

@@ -60,6 +60,18 @@ function allowedOrigin(env: Env, origin: string): boolean {
   return (env.APP_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean).includes(origin);
 }
 
+// The web app's Billing page (on the first of APP_ORIGINS), where credits
+// are added and shown; null when no app origin is configured.
+export function billingUrl(env: Pick<Env, "APP_ORIGINS">): URL | null {
+  const origin = (env.APP_ORIGINS ?? "").split(",").map((o) => o.trim()).find(Boolean);
+  if (!origin) return null;
+  try {
+    return new URL("/settings/billing", origin);
+  } catch {
+    return null;
+  }
+}
+
 function corsHeaders(origin: string): Record<string, string> {
   return {
     "access-control-allow-origin": origin,
@@ -366,7 +378,9 @@ route("POST", "/topup", async (req, env) => {
   if (!Number.isFinite(amount) || amount < min) throw new HttpError(400, `the minimum top-up is $${min}`);
   if (amount > 5000) throw new HttpError(400, "the maximum top-up is $5000");
   if (!env.SMARTLOOP_SERVICE_SECRET) throw new HttpError(503, "payments are not configured");
-  // The web app can have Stripe send people back to it (only to APP_ORIGINS).
+  // Stripe sends people back to the web app: to return_url when the app asks
+  // (only on APP_ORIGINS), otherwise (the CLI) to its Billing page, where
+  // the credits and the invoice show next to the plan.
   let back: URL | null = null;
   if (return_url) {
     try {
@@ -375,21 +389,18 @@ route("POST", "/topup", async (req, env) => {
       back = null;
     }
     if (!back || !allowedOrigin(env, back.origin)) throw new HttpError(400, "return_url must be on the smartloop web app");
+  } else {
+    back = billingUrl(env);
   }
   const withStatus = (status: string) => {
-    const u = new URL(back!.href);
+    if (!back) return `${env.PUBLIC_URL}/topup/${status}`;
+    const u = new URL(back.href);
     u.searchParams.set("topup", status);
     return u.href;
   };
   // Charged to the account's smartloop customer (one billing history for
   // plans and credits); smartloop adds the credits when Stripe confirms.
-  const url = await topupCheckoutUrl(
-    env,
-    user.id,
-    amount,
-    back ? withStatus("done") : `${env.PUBLIC_URL}/topup/done`,
-    back ? withStatus("cancelled") : `${env.PUBLIC_URL}/topup/cancelled`,
-  );
+  const url = await topupCheckoutUrl(env, user.id, amount, withStatus("done"), withStatus("cancelled"));
   return json({ url });
 });
 
