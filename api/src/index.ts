@@ -2,7 +2,7 @@ import { type Box, type User, getBox, meterBox, recordTopup, refreshBalance, run
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision } from "./external";
 import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
-import { REGIONS, byDistance, enabledRegions, regionOfZone, requestLocation } from "./regions";
+import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone, requestLocation } from "./regions";
 import { PLAN_ZONES } from "./zones.generated";
 import { grantCredits, topupCheckoutUrl } from "./smartloop";
 import { type CheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
@@ -138,6 +138,19 @@ async function activeBox(env: Env, userId: string): Promise<Box | null> {
   return env.DB.prepare(`SELECT * FROM boxes WHERE user_id = ?1 AND ${ACTIVE} ORDER BY created_at DESC LIMIT 1`)
     .bind(userId)
     .first<Box>();
+}
+
+// GPUs of the plan our boxes hold, per region: those being created, started,
+// running or stopping. A stopped VM holds no GPU quota. (One GPU per box.)
+async function gpusInUse(env: Env, planId: string): Promise<Record<string, number>> {
+  const { results } = await env.DB.prepare(
+    `SELECT region, COUNT(*) AS n FROM boxes
+       WHERE plan = ?1 AND status IN ('pending', 'starting', 'running', 'stopping')
+       GROUP BY region`,
+  )
+    .bind(planId)
+    .all<{ region: string; n: number }>();
+  return Object.fromEntries(results.map((r) => [r.region, Number(r.n)]));
 }
 
 function boxView(box: Box) {
@@ -306,8 +319,8 @@ route("GET", "/plans", async (req, env) => {
     plans: Object.values(PLANS).flatMap((p) => {
       const price = planPrice(p, region.id, premium);
       if (!price) return [];
-      // Enabled regions with a price and at least one zone offering the machine.
-      const where = enabledRegions(env.REGIONS, p.id).filter((r) => (PLAN_ZONES[p.id]?.[r.id] ?? []).length > 0);
+      // Enabled regions with a price, a zone offering the machine, and GPU quota.
+      const where = offeredRegions(env.REGIONS, p.id);
       const offered = where.some((r) => r.id === region.id);
       return [
         {
@@ -459,10 +472,12 @@ route("POST", "/box", async (req, env) => {
   const existing = await activeBox(env, user.id);
   if (existing) throw new HttpError(409, `you already have a box (${existing.id}, ${existing.status}); run gpushed down first`);
 
-  // Regions to try, in order: the one asked for, or nearest first. The box is
-  // billed at the price of the region it lands in.
-  const offered = enabledRegions(env.REGIONS, plan.id);
-  let candidates = byDistance(offered, requestLocation(req).lat, requestLocation(req).lon);
+  // Regions to try, in order: the one asked for, or those with GPUs to spare
+  // first (nearest first), then the full ones. The box is billed at the price
+  // of the region it lands in.
+  const offered = offeredRegions(env.REGIONS, plan.id);
+  const loc = requestLocation(req);
+  let candidates = byAvailability(offered, plan.id, await gpusInUse(env, plan.id), loc.lat, loc.lon);
   if (body.region) {
     candidates = offered.filter((r) => r.id === body.region);
     if (candidates.length === 0) {

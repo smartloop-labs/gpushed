@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
 // Keep in step with REGIONS in scripts/gcp-prices.mjs and src/regions.ts.
-const REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west4", "asia-southeast1"];
+const REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west4", "asia-southeast1", "asia-east1"];
 
 // Machine type and attached GPU ("" when built in) of each plan. Keep in
 // step with PLANS in src/pricing.ts.

@@ -11,7 +11,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
-const REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west4", "asia-southeast1"];
+const REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west4", "asia-southeast1", "asia-east1"];
 
 // What each plan's machine is made of; GCP bills cores, RAM and the GPU
 // separately. Keep in step with PLANS in src/pricing.ts.

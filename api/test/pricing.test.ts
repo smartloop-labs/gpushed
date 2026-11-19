@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meterRate } from "../src/billing";
 import { IP_HOURLY_USD, PLANS, chargeMicros, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
-import { REGIONS, byDistance, enabledRegions, regionOfZone } from "../src/regions";
+import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone } from "../src/regions";
 
 describe("pricing", () => {
   it("adds the premium to the GCP cost", () => {
@@ -36,9 +36,9 @@ describe("pricing", () => {
     expect(chargeMicros(1_000_000, -5)).toBe(0);
   });
 
-  it("lists H100 but doesn't offer it until GCP grants quota", () => {
-    expect(PLANS.h100.available).toBe(false);
-    expect(Object.values(PLANS).filter((p) => p.id !== "h100").every((p) => p.available)).toBe(true);
+  it("offers H100 only where GCP granted quota (Taiwan)", () => {
+    expect(PLANS.h100.available).toBe(true);
+    expect(offeredRegions("", "h100").map((r) => r.id)).toEqual(["asia-east1"]);
   });
 
   it("$10 buys about two hours of A100", () => {
@@ -53,12 +53,31 @@ describe("regions", () => {
   it("orders regions nearest first", () => {
     const all = enabledRegions("");
     expect(ids(byDistance(all, 52.37, 4.9))[0]).toBe("europe-west4"); // Amsterdam
-    expect(ids(byDistance(all, 35.68, 139.69))[0]).toBe("asia-southeast1"); // Tokyo
+    expect(ids(byDistance(all, 35.68, 139.69))[0]).toBe("asia-east1"); // Tokyo -> Taiwan
     expect(ids(byDistance(all, 37.77, -122.42))[0]).toBe("us-west1"); // San Francisco
     expect(ids(byDistance(all, 40.71, -74.0))[0]).toBe("us-east1"); // New York
     expect(ids(byDistance(all, 41.88, -87.63))[0]).toBe("us-central1"); // Chicago
-    expect(ids(byDistance(all, 23.81, 90.41)).slice(0, 2)).toEqual(["asia-southeast1", "europe-west4"]); // Dhaka
+    expect(ids(byDistance(all, 23.81, 90.41)).slice(0, 2)).toEqual(["asia-southeast1", "asia-east1"]); // Dhaka
   });
+  it("offers a plan only where it has a zone and quota", () => {
+    // Taiwan has an A100 price but no zone with the machine.
+    expect(ids(offeredRegions("", "a100"))).not.toContain("asia-east1");
+    expect(ids(offeredRegions("", "l4"))).toContain("asia-east1");
+  });
+
+  it("tries regions with GPUs to spare first, nearest first, then full ones", () => {
+    const a100 = offeredRegions("", "a100");
+    const chicago = [41.88, -87.63] as const;
+    // Nothing in use: plain nearest first.
+    expect(ids(byAvailability(a100, "a100", {}, ...chicago))[0]).toBe("us-central1");
+    // us-central1's 4 A100s all taken: it moves behind every region with room.
+    const full = ids(byAvailability(a100, "a100", { "us-central1": 4 }, ...chicago));
+    expect(full[0]).not.toBe("us-central1");
+    expect(full[full.length - 1]).toBe("us-central1");
+    // H100 has one region; it's always tried, full or not.
+    expect(ids(byAvailability(offeredRegions("", "h100"), "h100", { "asia-east1": 30 }, ...chicago))).toEqual(["asia-east1"]);
+  });
+
   it("leads with the fallback region when the location is unknown", () => {
     expect(ids(byDistance(enabledRegions(""), undefined, undefined))[0]).toBe("us-central1");
   });
