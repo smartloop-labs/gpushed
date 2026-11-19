@@ -146,8 +146,15 @@ describe("syncBalance", () => {
   it("stores the balance and re-arms the low-balance email above the line", async () => {
     const { env, runs } = fakeEnv({ balance_micros: 0, wallet_migrated_at: 1 });
     await syncBalance(env, "u1", 7_000_000);
-    expect(runs[0].args).toEqual([7_000_000, 2_000_000, "u1"]);
+    expect(runs[0].args).toEqual([7_000_000, 2_000_000, "u1", 0]);
     expect(runs[0].sql).toMatch(/low_balance_warned = CASE WHEN \?1 > \?2 THEN 0/);
-    expect(runs[0].sql).toMatch(/exhausted_at = CASE WHEN \?1 > 0 THEN NULL/);
+    expect(runs[0].sql).toMatch(/exhausted_at = CASE WHEN \?1 > 0 OR \?4 = 1 THEN NULL/);
+  });
+
+  it("marks a partner unlimited, which clears any out-of-money mark", async () => {
+    const { env, runs } = fakeEnv({ balance_micros: 0, wallet_migrated_at: 1 });
+    await syncBalance(env, "u1", 0, true);
+    expect(runs[0].args).toEqual([0, 2_000_000, "u1", 1]);
+    expect(runs[0].sql).toMatch(/unlimited = \?4/);
   });
 });

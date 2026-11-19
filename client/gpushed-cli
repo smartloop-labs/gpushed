@@ -249,10 +249,11 @@ plan_suffix() {
 show_account() {
   local me; api GET /me; me=$API_BODY
   say "👤 $(jq -r .email <<<"$me")$(plan_suffix "$me")"
-  say "💰 Balance: \$$(jq -r .balance_usd <<<"$me")"
-  if [ "$(jq -r .plan <<<"$me")" = partner ]; then
-    say "⭐ Partner: unlimited cloud models in smartloop. GPU time is paid from your credits."
+  if [ "$(jq -r .unlimited <<<"$me")" = true ]; then
+    say "⭐ GPU time: unlimited (Partner). Nothing is charged, and your box never stops for credit."
+    return 0
   fi
+  say "💰 Balance: \$$(jq -r .balance_usd <<<"$me")"
   if [ "$(jq -r .balance_micros <<<"$me")" -le 0 ]; then
     say "No credit yet. Add some (minimum \$$(jq -r .min_topup_usd <<<"$me")) with: gpushed topup"
   elif [ "$(jq -r .low_balance <<<"$me")" = true ]; then
@@ -265,6 +266,11 @@ signed_in() {
   umask 077
   jq -r .token <<<"$1" > "$TOKEN_FILE"
   say "✅ Signed in as $(jq -r .account.email <<<"$1")$(plan_suffix "$(jq .account <<<"$1")")."
+  if [ "$(jq -r .account.unlimited <<<"$1")" = true ]; then
+    say "⭐ GPU time: unlimited (Partner)."
+    say "Next: gpushed up"
+    return 0
+  fi
   say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$1")"
   if [ "$(jq -r .account.balance_micros <<<"$1")" -le 0 ]; then
     say ""
@@ -486,7 +492,11 @@ case "$cmd" in
       say "No box. Create one with: gpushed up"
     else
       jq -r '.box | "📦 Box \(.id)\n   Plan:    \(.plan)  ($\(.hourly_usd)/h running, $\(.stopped_hourly_usd)/h stopped)\n   Status:  \(.status)\n   Region:  \(.region_name) (\(.zone // .region))\n   IP:      \(.ip // "-")" + (if .error then "\n   Error:   \(.error)" else "" end)' <<<"$b"
-      say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$b")"
+      if [ "$(jq -r .account.unlimited <<<"$b")" = true ]; then
+        say "⭐ GPU time: unlimited (Partner)"
+      else
+        say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$b")"
+      fi
       [ "$(jq -r .account.low_balance <<<"$b")" = true ] && say "⚠️  Balance is low; the box stops when it runs out. gpushed topup"
     fi
     ;;

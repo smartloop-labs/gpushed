@@ -177,7 +177,7 @@ function boxView(box: Box) {
 async function withCredits(env: Env, user: User): Promise<User> {
   try {
     const credits = await refreshBalance(env, user.id, nowSec());
-    return { ...user, balance_micros: credits.available_micros, plan: credits.plan };
+    return { ...user, balance_micros: credits.available_micros, plan: credits.plan, unlimited: credits.unlimited ? 1 : 0 };
   } catch (e) {
     console.error(`reading credits for ${user.id} failed; using the stored balance`, e);
     return user;
@@ -192,9 +192,11 @@ function account(env: Env, user: User) {
     email: user.email,
     plan: user.plan ?? null,
     plan_label: user.plan ? (PLAN_LABELS[user.plan] ?? user.plan) : null,
+    // GPU time is free and boxes never stop for credit (a smartloop Partner).
+    unlimited: !!user.unlimited,
     balance_usd: usd(user.balance_micros),
     balance_micros: user.balance_micros,
-    low_balance: user.balance_micros > 0 && user.balance_micros <= numVar(env.LOW_BALANCE_USD, 2) * 1e6,
+    low_balance: !user.unlimited && user.balance_micros > 0 && user.balance_micros <= numVar(env.LOW_BALANCE_USD, 2) * 1e6,
     min_topup_usd: numVar(env.MIN_TOPUP_USD, 10),
   };
 }
@@ -527,8 +529,8 @@ route("POST", "/box", async (req, env) => {
   const premium = numVar(env.PREMIUM_PCT, 20);
   // At least an hour at the price shown for the first region (what plans shows).
   const price = planPrice(plan, candidates[0].id, premium)!;
-  const { balance_micros: available } = await withCredits(env, user);
-  if (available < price.hourlyMicros) {
+  const { balance_micros: available, unlimited } = await withCredits(env, user);
+  if (!unlimited && available < price.hourlyMicros) {
     throw new HttpError(402, balanceShortMessage(available, plan.id, price.hourlyMicros));
   }
   const now = nowSec();
@@ -584,8 +586,8 @@ route("POST", "/box/start", async (req, env) => {
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");
   if (box.status !== "stopped") throw new HttpError(409, `box is ${box.status}; only a stopped box can be started`);
-  const { balance_micros: available } = await withCredits(env, user);
-  if (available < box.hourly_micros) {
+  const { balance_micros: available, unlimited } = await withCredits(env, user);
+  if (!unlimited && available < box.hourly_micros) {
     throw new HttpError(402, balanceShortMessage(available, box.plan, box.hourly_micros));
   }
   const now = nowSec();

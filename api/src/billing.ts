@@ -44,6 +44,7 @@ export interface User {
   low_balance_warned: number;
   exhausted_at: number | null;
   wallet_migrated_at?: number | null;
+  unlimited?: number; // 1: GPU time is unlimited (a smartloop Partner)
   // Not stored: the smartloop plan, when withCredits has just read it.
   plan?: string;
   created_at: number;
@@ -93,15 +94,15 @@ export async function ensureMigrated(env: Env, userId: string, now: number): Pro
 // Store what smartloop says the account can spend. Clears the "out of money"
 // marks once there's money again, and re-arms the low-balance email once the
 // balance is back above the warning line, as a top-up used to.
-export async function syncBalance(env: Env, userId: string, availableMicros: number): Promise<void> {
+export async function syncBalance(env: Env, userId: string, availableMicros: number, unlimited = false): Promise<void> {
   const lowMicros = numVar(env.LOW_BALANCE_USD, 2) * 1e6;
   await env.DB.prepare(
-    `UPDATE users SET balance_micros = ?1,
+    `UPDATE users SET balance_micros = ?1, unlimited = ?4,
        low_balance_warned = CASE WHEN ?1 > ?2 THEN 0 ELSE low_balance_warned END,
-       exhausted_at = CASE WHEN ?1 > 0 THEN NULL ELSE exhausted_at END
+       exhausted_at = CASE WHEN ?1 > 0 OR ?4 = 1 THEN NULL ELSE exhausted_at END
      WHERE id = ?3`,
   )
-    .bind(availableMicros, lowMicros, userId)
+    .bind(availableMicros, lowMicros, userId, unlimited ? 1 : 0)
     .run();
 }
 
@@ -109,7 +110,7 @@ export async function syncBalance(env: Env, userId: string, availableMicros: num
 export async function refreshBalance(env: Env, userId: string, now: number): Promise<Credits> {
   await ensureMigrated(env, userId, now);
   const credits = await getCredits(env, userId);
-  await syncBalance(env, userId, credits.available_micros);
+  await syncBalance(env, userId, credits.available_micros, !!credits.unlimited);
   return credits;
 }
 
@@ -131,7 +132,7 @@ export async function meterBox(env: Env, box: Box, now: number): Promise<Box> {
         "INSERT INTO ledger (user_id, amount_micros, kind, ref, created_at) VALUES (?1, ?2, 'usage', ?3, ?4)",
       ).bind(box.user_id, -amount, ref, now),
     );
-    await syncBalance(env, box.user_id, spent.available_micros);
+    await syncBalance(env, box.user_id, spent.available_micros, !!spent.unlimited);
   }
   stmts.push(
     env.DB.prepare("UPDATE boxes SET metered_until = ?1 WHERE id = ?2 AND metered_until = ?3").bind(
@@ -245,7 +246,7 @@ export async function runMetering(env: Env, now: number): Promise<void> {
 
   const lowMicros = numVar(env.LOW_BALANCE_USD, 2) * 1e6;
   const { results: low } = await env.DB.prepare(
-    `SELECT * FROM users u WHERE u.low_balance_warned = 0 AND u.balance_micros > 0 AND u.balance_micros <= ?1
+    `SELECT * FROM users u WHERE u.low_balance_warned = 0 AND u.unlimited = 0 AND u.balance_micros > 0 AND u.balance_micros <= ?1
        AND EXISTS (SELECT 1 FROM boxes b WHERE b.user_id = u.id AND b.status IN ('running', 'starting', 'pending'))`,
   )
     .bind(lowMicros)
@@ -267,14 +268,14 @@ export async function runMetering(env: Env, now: number): Promise<void> {
     }
   }
 
-  await env.DB.prepare("UPDATE users SET exhausted_at = ?1 WHERE balance_micros <= 0 AND exhausted_at IS NULL")
+  await env.DB.prepare("UPDATE users SET exhausted_at = ?1 WHERE balance_micros <= 0 AND unlimited = 0 AND exhausted_at IS NULL")
     .bind(now)
     .run();
 
   const graceSec = numVar(env.STOPPED_GRACE_HOURS, 24) * 3600;
   const { results: broke } = await env.DB.prepare(
     `SELECT b.*, u.email AS email, u.balance_micros AS balance_micros, u.exhausted_at AS exhausted_at FROM boxes b JOIN users u ON u.id = b.user_id
-       WHERE b.metered_until IS NOT NULL AND (
+       WHERE b.metered_until IS NOT NULL AND u.unlimited = 0 AND (
          -- Stop a running box while ~10 minutes of credit is left (the cron runs
          -- every 5 and stopping takes a few), so balances barely go negative.
          (b.status = 'running' AND u.balance_micros <= b.hourly_micros / 6)
