@@ -9,6 +9,7 @@ export interface Env {
   MIN_TOPUP_USD: string; // e.g. "10"
   LOW_BALANCE_USD: string; // warn at or below this balance
   STOPPED_GRACE_HOURS: string; // destroy a box stopped for lack of funds after this long
+  IDLE_STOP_MINUTES?: string; // a box with an idle GPU stops itself after this many minutes (0: never)
   GITHUB_REPO: string; // owner/name holding the provision workflow
   GITHUB_WORKFLOW: string; // e.g. provision.yml
   GITHUB_REF: string; // branch the workflow runs from
