@@ -4,7 +4,8 @@
 # mounted /state volume (~/.gpushed/state on the Mac).
 FROM alpine:3.20
 ARG VERSION=dev
-RUN apk add --no-cache bash curl jq openssh-client ca-certificates ncurses
+# gum draws the menus (gpushed topup); the CLI falls back to its own without it.
+RUN apk add --no-cache bash curl jq openssh-client ca-certificates ncurses gum
 COPY gpushed-cli /usr/local/bin/gpushed-cli
 RUN chmod +x /usr/local/bin/gpushed-cli && echo "$VERSION" > /etc/gpushed-version
 ENV GPUSHED_STATE=/state
