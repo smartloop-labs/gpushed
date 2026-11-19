@@ -21,6 +21,7 @@ export interface Env {
   RESEND_API_KEY?: string;
   GITHUB_TOKEN?: string; // fine-grained token: Actions read/write on GITHUB_REPO
   PROVISIONER_SECRET?: string; // shared with the provision workflow
+  SMARTLOOP_SERVICE_SECRET?: string; // smartloop API's GPUSHED_SERVICE_SECRET: spends and tops up credits
 }
 
 export function numVar(v: string | undefined, fallback: number): number {
