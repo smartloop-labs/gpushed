@@ -239,10 +239,20 @@ follow_setup() {
   say "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
+# " · Partner" (the smartloop plan), or nothing when the API didn't say.
+plan_suffix() {
+  local label; label=$(jq -r '.plan_label // empty' <<<"$1")
+  [ -n "$label" ] && printf ' · %s' "$label"
+  return 0
+}
+
 show_account() {
   local me; api GET /me; me=$API_BODY
-  say "👤 $(jq -r .email <<<"$me")"
+  say "👤 $(jq -r .email <<<"$me")$(plan_suffix "$me")"
   say "💰 Balance: \$$(jq -r .balance_usd <<<"$me")"
+  if [ "$(jq -r .plan <<<"$me")" = partner ]; then
+    say "⭐ Partner: unlimited cloud models in smartloop. GPU time is paid from your credits."
+  fi
   if [ "$(jq -r .balance_micros <<<"$me")" -le 0 ]; then
     say "No credit yet. Add some (minimum \$$(jq -r .min_topup_usd <<<"$me")) with: gpushed topup"
   elif [ "$(jq -r .low_balance <<<"$me")" = true ]; then
@@ -254,7 +264,7 @@ show_account() {
 signed_in() {
   umask 077
   jq -r .token <<<"$1" > "$TOKEN_FILE"
-  say "✅ Signed in as $(jq -r .account.email <<<"$1")."
+  say "✅ Signed in as $(jq -r .account.email <<<"$1")$(plan_suffix "$(jq .account <<<"$1")")."
   say "💰 Balance: \$$(jq -r .account.balance_usd <<<"$1")"
   if [ "$(jq -r .account.balance_micros <<<"$1")" -le 0 ]; then
     say ""
