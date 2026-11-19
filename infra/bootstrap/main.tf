@@ -50,6 +50,7 @@ variable "regions" {
     "us-west1"        = "10.22.0.0/16"
     "europe-west4"    = "10.23.0.0/16"
     "asia-southeast1" = "10.24.0.0/16"
+    "asia-east1"      = "10.25.0.0/16"
   }
 }
 
