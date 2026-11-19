@@ -204,11 +204,28 @@ async function dispatchOrFail(env: Env, box: Box, action: ProvisionAction, now: 
   }
 }
 
-function html(title: string, body: string): Response {
+// A small page the browser lands on (Stripe's return from a CLI top-up, ...).
+// Needs no sign-in. `body` is trusted HTML written here, never user input.
+function html(title: string, body: string, mark = ""): Response {
   return new Response(
-    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
-      `<title>${title}</title><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem">` +
-      `<h1>${title}</h1><p>${body}</p></body>`,
+    `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+      `<title>${title} · gpushed</title>` +
+      `<style>
+        :root{--bg:#f7f8f5;--fg:#141613;--muted:#5d6459;--card:#fff;--line:#e3e7df;--accent:#3f8f1f;--accent-ink:#fff;--code:#eef2ea}
+        @media (prefers-color-scheme:dark){:root{--bg:#0d0f0c;--fg:#eef1eb;--muted:#9aa394;--card:#151813;--line:#262b23;--accent:#84e05a;--accent-ink:#0d0f0c;--code:#1c2119}}
+        *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,sans-serif}
+        main{max-width:30rem;margin:12vh auto;padding:0 1rem}
+        .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2rem}
+        .brand{font-weight:700;letter-spacing:-.01em;margin-bottom:1.5rem}.brand b{color:var(--accent)}
+        h1{font-size:1.5rem;margin:0 0 .75rem;display:flex;gap:.6rem;align-items:center}
+        .mark{color:var(--accent)}p{color:var(--muted);margin:.6rem 0}
+        code{background:var(--code);color:var(--fg);padding:.1rem .4rem;border-radius:6px;font-size:.92em}
+        .next{margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--line)}
+        a.btn{display:inline-block;margin-top:.5rem;padding:.55rem 1rem;border-radius:9px;border:1px solid var(--accent);color:var(--accent);text-decoration:none;font-weight:600}
+        a.btn:hover{background:var(--accent);color:var(--accent-ink)}
+      </style>` +
+      `<main><div class="card"><div class="brand">gpu<b>shed</b></div>` +
+      `<h1>${mark ? `<span class="mark">${mark}</span>` : ""}${title}</h1>${body}</div></main></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } },
   );
 }
@@ -391,9 +408,9 @@ route("POST", "/topup", async (req, env) => {
   if (!Number.isFinite(amount) || amount < min) throw new HttpError(400, `the minimum top-up is $${min}`);
   if (amount > 5000) throw new HttpError(400, "the maximum top-up is $5000");
   if (!env.SMARTLOOP_SERVICE_SECRET) throw new HttpError(503, "payments are not configured");
-  // Stripe sends people back to the web app: to return_url when the app asks
-  // (only on APP_ORIGINS), otherwise (the CLI) to its Billing page, where
-  // the credits and the invoice show next to the plan.
+  // Where Stripe sends people back: to return_url when the web app asks (only
+  // on APP_ORIGINS; they're signed in there), otherwise (the CLI) to gpushed's
+  // own confirmation pages, which need no sign-in and link to Billing.
   let back: URL | null = null;
   if (return_url) {
     try {
@@ -402,8 +419,6 @@ route("POST", "/topup", async (req, env) => {
       back = null;
     }
     if (!back || !allowedOrigin(env, back.origin)) throw new HttpError(400, "return_url must be on the smartloop web app");
-  } else {
-    back = billingUrl(env);
   }
   const withStatus = (status: string) => {
     if (!back) return `${env.PUBLIC_URL}/topup/${status}`;
@@ -417,10 +432,28 @@ route("POST", "/topup", async (req, env) => {
   return json({ url });
 });
 
-route("GET", "/topup/done", async () =>
-  html("Payment received", "Your balance updates in a few seconds. Check it with <code>gpushed balance</code>."),
+// Where Stripe returns a top-up started from the CLI: gpushed's own pages,
+// which need no sign-in (the app's Billing page would ask the browser to
+// sign in to smartloop first).
+route("GET", "/topup/done", async (_req, env) => {
+  const billing = billingUrl(env);
+  return html(
+    "Payment received",
+    `<p>Your credits are added to your smartloop account in a few seconds. You can close this tab and go back to your terminal.</p>` +
+      (billing
+        ? `<p>Your credits, plan and invoices are in Billing on the smartloop dashboard.</p><a class="btn" href="${billing.href}">Open Billing</a>`
+        : "") +
+      `<div class="next"><p>Next, in your terminal:</p><p><code>gpushed balance</code> to see your credits<br><code>gpushed up</code> to start a GPU box</p></div>`,
+    "✓",
+  );
+});
+route("GET", "/topup/cancelled", async () =>
+  html(
+    "Checkout cancelled",
+    `<p>You weren't charged, and nothing changed on your account. You can close this tab.</p>` +
+      `<div class="next"><p>To add credits, run <code>gpushed topup</code> again.</p></div>`,
+  ),
 );
-route("GET", "/topup/cancelled", async () => html("Top-up cancelled", "You weren't charged."));
 
 route("POST", "/stripe/webhook", async (req, env) => {
   const payload = await req.text();
