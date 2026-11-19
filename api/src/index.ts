@@ -216,7 +216,7 @@ function html(title: string, body: string, mark = ""): Response {
         *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,sans-serif}
         main{max-width:30rem;margin:12vh auto;padding:0 1rem}
         .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:2rem}
-        .brand{font-weight:700;letter-spacing:-.01em;margin-bottom:1.5rem}.brand b{color:var(--accent)}
+        .brand{display:inline-block;font-weight:700;letter-spacing:-.01em;margin-bottom:1.5rem;color:var(--fg);text-decoration:none}.brand b{color:var(--accent)}
         h1{font-size:1.5rem;margin:0 0 .75rem;display:flex;gap:.6rem;align-items:center}
         .mark{color:var(--accent)}p{color:var(--muted);margin:.6rem 0}
         code{background:var(--code);color:var(--fg);padding:.1rem .4rem;border-radius:6px;font-size:.92em}
@@ -224,7 +224,7 @@ function html(title: string, body: string, mark = ""): Response {
         a.btn{display:inline-block;margin-top:.5rem;padding:.55rem 1rem;border-radius:9px;border:1px solid var(--accent);color:var(--accent);text-decoration:none;font-weight:600}
         a.btn:hover{background:var(--accent);color:var(--accent-ink)}
       </style>` +
-      `<main><div class="card"><div class="brand">gpu<b>shed</b></div>` +
+      `<main><div class="card"><a class="brand" href="https://gpushed.dev">gpu<b>shed</b></a>` +
       `<h1>${mark ? `<span class="mark">${mark}</span>` : ""}${title}</h1>${body}</div></main></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } },
   );
