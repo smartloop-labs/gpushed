@@ -354,7 +354,7 @@ Account
 
 Box
   plans [--region R]       GPUs you can run and their hourly price
-  up [plan] [--region R]   Create your box (default plan: l4) in the nearest
+  up [plan] [--region R]   Create your box (default plan: l4-spot) in the nearest
                            region with free GPUs, and set it up
   status                   Show your box
   ssh [cmd...]             SSH into your box, starting it (or creating one) first
@@ -371,7 +371,7 @@ shift || true
 
 # Create a box (gpushed up [plan] [--region REGION]) and wait until it's ready.
 create_box() {
-  local plan="" region="" body res where
+  local plan="" region="" body res where p
   while [ $# -gt 0 ]; do
     case "$1" in
       --region) region="${2:-}"; [ -n "$region" ] || die "Usage: gpushed up [plan] [--region REGION]"; shift 2 ;;
@@ -386,6 +386,11 @@ create_box() {
   api POST /box "$body"; res=$API_BODY
   if [ -n "$region" ]; then where="in $(jq -r .box.region_name <<<"$res")"; else where="nearest region first: $(jq -r .box.region_name <<<"$res")"; fi
   say "🚀 Creating box $(jq -r .box.id <<<"$res") ($(jq -r .box.plan <<<"$res"), $where; billed per second while it exists)"
+  if [ "$(jq -r '.box.spot // false' <<<"$res")" = true ]; then
+    say "   Spot box: Google may stop it at any time (disk kept; gpushed start resumes it)."
+    p=$(jq -r .box.plan <<<"$res")
+    [ "${p%-spot}" = "$p" ] || say "   For work that mustn't be interrupted: gpushed up ${p%-spot}"
+  fi
   wait_for running
   require_running_box
   box_json
@@ -471,7 +476,7 @@ case "$cmd" in
     # no status: treat the plan as available.
     jq -r '.plans[] | [
         .id,
-        (.label | split(", ")[0] | sub("^1x NVIDIA "; "")),
+        ((.label | split(", ")[0] | sub("^1x NVIDIA "; "")) + (if .spot then " (Spot)" else "" end)),
         "$\(.hourly_usd)",
         "$\(.stopped_hourly_usd)",
         ((.status // "available") as $s
@@ -479,10 +484,12 @@ case "$cmd" in
             elif $s == "elsewhere" then "not here; in \(.regions | join(", "))"
             else "available" end)
       ] | @tsv' <<<"$API_BODY" |
-      awk -F'\t' 'BEGIN { printf "  %-8s %-18s %9s %9s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "STATUS" }
-        { printf "  %-8s %-18s %9s %9s  %s\n", $1, $2, $3, $4, $5 }'
+      awk -F'\t' 'BEGIN { printf "  %-10s %-24s %9s %9s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "STATUS" }
+        { printf "  %-10s %-24s %9s %9s  %s\n", $1, $2, $3, $4, $5 }'
     jq -r '"\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
     say "Prices include disk and IP, and differ a little by region. A stopped box costs only its disk."
+    say "Spot boxes are much cheaper, but Google may stop one at any time (its disk is kept; start it again"
+    say "with gpushed start). For work that mustn't be interrupted, pick a plan without -spot."
     say "To create or start a box you need an hour of its price in your balance."
     say "Your box goes to the nearest region with free GPUs; pick one with: gpushed up [plan] --region REGION"
     ;;

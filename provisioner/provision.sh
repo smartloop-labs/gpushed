@@ -163,7 +163,7 @@ outputs_and_report() {
   local ip zone
   ip=$(terraform output -raw ip 2>/dev/null || true)
   zone=$(terraform output -raw zone 2>/dev/null || true)
-  echo "::add-mask::$ip" 2>/dev/null || true
+  [ -z "${GITHUB_ACTIONS:-}" ] || echo "::add-mask::$ip" # hide it in public workflow logs
   report true "$ip" "$zone"
   echo "✔ $ACTION done${zone:+ in $zone}"
 }

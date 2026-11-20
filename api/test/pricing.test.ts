@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { meterRate } from "../src/billing";
-import { IP_HOURLY_USD, PLANS, chargeMicros, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
+import { DEFAULT_PLAN, IP_HOURLY_USD, PLANS, capacityKey, chargeMicros, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
 import { REGION_PRICES } from "../src/regions.generated";
 import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone } from "../src/regions";
 
@@ -43,6 +43,28 @@ describe("pricing", () => {
     expect(gcpHourlyUsd("h100", "asia-east1")!).toBeLessThan(REGION_PRICES["asia-east1"].plans.h100);
     expect(planPrice(PLANS.h100, "asia-east1", 20)!.hourlyMicros).toBeCloseTo(9.19e6, -4);
     expect(gcpHourlyUsd("a100", "us-central1")).toBe(REGION_PRICES["us-central1"].plans.a100);
+  });
+
+  it("has a Spot variant of every on-demand plan, at the Spot price, and Spot by default", () => {
+    for (const id of ["t4", "l4", "a100"]) {
+      const spot = PLANS[`${id}-spot`];
+      expect(spot, id).toBeDefined();
+      expect(spot.spot).toBe(true);
+      expect(PLANS[id].spot).toBeFalsy();
+      expect(spot.machineType).toBe(PLANS[id].machineType);
+      expect(gcpHourlyUsd(spot.id, "us-central1")).toBe(REGION_PRICES["us-central1"].spot[id]);
+      expect(planPrice(spot, "us-central1", 20)!.hourlyMicros).toBeLessThan(planPrice(PLANS[id], "us-central1", 20)!.hourlyMicros);
+      // Spot GPUs have their own quota.
+      expect(offeredRegions("", spot.id).length, spot.id).toBeGreaterThan(0);
+    }
+    expect(planPrice(PLANS["l4-spot"], "us-central1", 20)!.hourlyMicros).toBeCloseTo(0.54e6, -4);
+    expect(PLANS["h100-spot"]).toBeUndefined();
+    expect(DEFAULT_PLAN).toBe("l4-spot");
+  });
+
+  it("records Spot and on-demand stockouts apart", () => {
+    expect(capacityKey(PLANS.l4)).toBe("g2-standard-4");
+    expect(capacityKey(PLANS["l4-spot"])).toBe("g2-standard-4:spot");
   });
 
   it("offers H100 only where GCP granted quota (Taiwan)", () => {

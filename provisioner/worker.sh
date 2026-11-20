@@ -36,6 +36,21 @@ claim() {
   return 1
 }
 
+# Tell the API every box VM's actual status, from GCP (POST /internal/reconcile):
+# a Spot box Google reclaimed without its shutdown hook reaching the API is
+# still "running" there. The time is taken before listing, so the API can
+# ignore boxes that changed after it.
+reconcile() {
+  local listed_at list
+  listed_at=$(date +%s)
+  list=$(gcloud compute instances list --project "$GCP_PROJECT" --filter="labels.gpushed=box" \
+    --format=json 2>/dev/null) || { echo "could not list instances"; return 1; }
+  echo "… $(jq length <<<"$list") box VMs"
+  api POST /internal/reconcile "$(jq -c --argjson t "$listed_at" \
+    '{listed_at: $t, instances: [.[] | {box_id: .labels.box_id, status}]}' <<<"$list")" \
+    | jq -r 'if (.reclaimed | length) > 0 then "✔ marked reclaimed: \(.reclaimed | join(", "))" else "✔ all in step" end'
+}
+
 runs=0
 # A worker never takes more than a handful in a row: the job's 30-minute
 # timeout covers the whole execution, and later runs get their own.
@@ -51,7 +66,9 @@ while [ $runs -lt 3 ]; do
     up|start)
       api POST "/internal/boxes/$BOX_ID/progress" '{"message":"provisioning worker started"}' >/dev/null 2>&1 || true ;;
   esac
-  if provision "$ACTION" "$BOX_ID"; then ok=true; else ok=false; fi
+  if [ "$ACTION" = reconcile ]; then
+    if reconcile; then ok=true; else ok=false; fi
+  elif provision "$ACTION" "$BOX_ID"; then ok=true; else ok=false; fi
   api POST "/internal/jobs/$ID/done" "{\"ok\":$ok}" >/dev/null 2>&1 \
     || echo "could not mark job $ID done (it will expire)"
 done

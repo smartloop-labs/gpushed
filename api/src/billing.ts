@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { numVar } from "./env";
-import { dispatchProvision, sendEmail } from "./external";
-import { chargeMicros } from "./pricing";
+import { dispatchProvision, maybeReconcile, sendEmail } from "./external";
+import { PLANS, chargeMicros } from "./pricing";
 import { type Credits, getCredits, grantCredits, spendCredits } from "./smartloop";
 import { isUniqueViolation, usd } from "./util";
 
@@ -305,6 +305,13 @@ export async function runMetering(env: Env, now: number): Promise<void> {
   }
 
   await retryStuckProvisions(env, now);
+
+  // Catch Spot boxes Google reclaimed without their shutdown hook reaching us.
+  try {
+    await maybeReconcile(env, Object.values(PLANS).filter((p) => p.spot).map((p) => p.id), now);
+  } catch (e) {
+    console.error("queueing a reconcile run failed", e);
+  }
 }
 
 // Ask the provisioner to run `action` on a box the cron just moved into
@@ -355,4 +362,22 @@ export async function retryStuckProvisions(env: Env, now: number): Promise<void>
       console.error(`retrying ${action} for ${box.id} failed`, e);
     }
   }
+}
+
+// Running Spot boxes whose VM GCP has stopped, from the provisioner's listing
+// of every box VM (taken at listedAt): Google reclaimed them and their
+// shutdown hook never reached the API. A box that changed in the minute
+// before the listing, or after it, is left alone: it may have been started
+// since (still TERMINATED in the listing).
+export function unreportedReclaims(
+  running: Box[],
+  instances: { box_id?: string; status?: string }[],
+  listedAt: number,
+): Box[] {
+  const vmStatus = new Map(instances.map((i) => [String(i.box_id), String(i.status)]));
+  return running.filter((box) => {
+    if (box.status !== "running" || !PLANS[box.plan]?.spot || box.updated_at >= listedAt - 60) return false;
+    const st = vmStatus.get(box.id);
+    return st === "TERMINATED" || st === "STOPPED";
+  });
 }
