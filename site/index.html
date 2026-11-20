@@ -64,7 +64,7 @@
         { "@type": "Question", "name": "Can I use Jupyter or VS Code with the GPU?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Connect with plain SSH using the key gpushed keeps in ~/.gpushed/state, and forward a port for Jupyter, or point VS Code Remote-SSH at the box." } },
         { "@type": "Question", "name": "How is gpushed billed?", "acceptedAnswer": { "@type": "Answer", "text": "Per second, from a prepaid balance (top up from $10 with Stripe), from the moment the box exists until it is deleted. A stopped box costs only its disk, about $0.03/hour. If your balance runs out, the box is stopped, so you are never billed more than you put in." } },
         { "@type": "Question", "name": "What's installed on the GPU box?", "acceptedAnswer": { "@type": "Answer", "text": "Ubuntu 22.04 with the NVIDIA driver and CUDA Toolkit 12.6, plus Python 3.11 (pip and uv), Node.js 24 LTS, Rust, git and build tools, with full root access." } },
-        { "@type": "Question", "name": "What is a Spot box?", "acceptedAnswer": { "@type": "Answer", "text": "Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time with 30 seconds' notice. The box is then stopped with its disk and files kept, you get an email, and gpushed start resumes it. For work that mustn't be interrupted, pick an on-demand plan, e.g. gpushed up l4." } },
+        { "@type": "Question", "name": "What is a Spot box?", "acceptedAnswer": { "@type": "Answer", "text": "Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time with 30 seconds' notice. The box is then stopped with its disk and files kept, you get an email, and gpushed start resumes it. For work that mustn't be interrupted, pick an on-demand plan, e.g. gpushed up l4-ondemand." } },
         { "@type": "Question", "name": "Where does gpushed run?", "acceptedAnswer": { "@type": "Answer", "text": "On Google Cloud, in the region nearest you: Iowa, South Carolina or Oregon in the US, the Netherlands, or Singapore. If a region is out of GPUs, gpushed tries the next nearest one automatically." } }
       ]
     }
@@ -505,7 +505,7 @@
     <div class="term" role="img" aria-label="Terminal: gpushed up creates an L4 box with CUDA ready; nvidia-smi shows the GPU">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="t-cmd">gpushed up</span>
-<span class="t-dim">🚀 Creating box b7k2… (l4-spot, $0.54/h)</span>
+<span class="t-dim">🚀 Creating box b7k2… (l4, $0.54/h)</span>
 <span class="t-dim">   … pending</span>
 <span class="t-dim">   … running</span>
 <span class="t-g">✅ Running</span>
@@ -706,7 +706,7 @@ name, memory.total [MiB]
           <p class="good">7B–8B LoRA, vLLM serving, SDXL.</p>
           <div class="price">$0.54<small> / hour, Spot</small></div>
           <div class="id">gpushed up</div>
-          <div class="alt">On-demand $0.88 / hour · <code>gpushed up l4</code></div>
+          <div class="alt">On-demand $0.88 / hour · <code>gpushed up l4-ondemand</code></div>
         </div>
         <div class="plan">
           <div class="tag">Large models</div>
@@ -714,8 +714,8 @@ name, memory.total [MiB]
           <div class="spec">40 GB · 12 vCPU · 85 GB RAM</div>
           <p class="good">13B+ fine-tuning, long contexts.</p>
           <div class="price">$2.53<small> / hour, Spot</small></div>
-          <div class="id">gpushed up a100-spot</div>
-          <div class="alt">On-demand $4.44 / hour · <code>gpushed up a100</code></div>
+          <div class="id">gpushed up a100</div>
+          <div class="alt">On-demand $4.44 / hour · <code>gpushed up a100-ondemand</code></div>
         </div>
         <div class="plan">
           <div class="tag">Frontier · Spot · Taiwan</div>
@@ -751,7 +751,7 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>What's a Spot box?</summary>
-            <p>Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time, with 30 seconds' notice. Whatever is running stops, but the box keeps its disk and files: you get an email, and <code>gpushed start</code> (or <code>gpushed ssh</code>) resumes it once a GPU is free again. Save checkpoints often. For work that mustn't be interrupted, pick an on-demand plan: <code>gpushed up l4</code>, <code>gpushed up a100</code>. <code>gpushed plans</code> lists both.</p>
+            <p>Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time, with 30 seconds' notice. Whatever is running stops, but the box keeps its disk and files: you get an email, and <code>gpushed start</code> (or <code>gpushed ssh</code>) resumes it once a GPU is free again. Save checkpoints often. For work that mustn't be interrupted, pick an on-demand plan: <code>gpushed up l4-ondemand</code>, <code>gpushed up a100-ondemand</code>. <code>gpushed plans</code> lists both.</p>
           </details>
           <details>
             <summary>Can I use Jupyter or VS Code?</summary>

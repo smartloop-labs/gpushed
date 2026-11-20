@@ -1,6 +1,7 @@
 // Regenerate src/capacity.generated.ts: how many of each plan's GPU our GCP
 // project may run in each of our regions (its GPU quota: on-demand for a plan,
-// Spot, i.e. PREEMPTIBLE_*, for its "-spot" variant). The API
+// Spot, i.e. PREEMPTIBLE_*, for the Spot plans named after their GPU, and
+// on-demand for the "-ondemand" plans). The API
 // offers a plan only where this is above zero, and tries regions with quota
 // to spare first (src/regions.ts, byAvailability). Run it when GCP grants or
 // changes quota, or when adding a region or a plan:
@@ -17,17 +18,16 @@ import { writeFileSync } from "node:fs";
 const REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west4", "asia-southeast1", "asia-east1"];
 // Each plan's GPU, by regional metric and by GPU family (whichever GCP uses).
 // Spot GPUs count against their own PREEMPTIBLE_* regional quota.
-const ON_DEMAND = {
+const GPUS = {
   t4: { metric: "NVIDIA_T4_GPUS", family: "NVIDIA_T4" },
   l4: { metric: "NVIDIA_L4_GPUS", family: "NVIDIA_L4" },
   a100: { metric: "NVIDIA_A100_GPUS", family: "NVIDIA_A100" },
-  "a100-80": { metric: "NVIDIA_A100_80GB_GPUS", family: "NVIDIA_A100_80GB" },
 };
 const PLANS = {
-  ...ON_DEMAND,
-  ...Object.fromEntries(
-    ["t4", "l4", "a100"].map((id) => [`${id}-spot`, { metric: `PREEMPTIBLE_${ON_DEMAND[id].metric}`, family: "" }]),
-  ),
+  ...Object.fromEntries(Object.entries(GPUS).map(([id, g]) => [id, { metric: `PREEMPTIBLE_${g.metric}`, family: "" }])),
+  ...Object.fromEntries(Object.entries(GPUS).map(([id, g]) => [`${id}-ondemand`, g])),
+  // Not offered yet (no quota), kept for when GCP grants it.
+  "a100-80-ondemand": { metric: "NVIDIA_A100_80GB_GPUS", family: "NVIDIA_A100_80GB" },
   // Spot-only; GCP counts it under the H100 family quota.
   h100: { metric: "NVIDIA_H100_GPUS", family: "NVIDIA_H100" },
 };

@@ -129,10 +129,10 @@ describe("unreportedReclaims", () => {
 
   it("finds running Spot boxes whose VM GCP has stopped", () => {
     const boxes = [
-      box({ id: "s1", plan: "l4-spot", ...old }), // reclaimed, unreported
-      box({ id: "s2", plan: "l4-spot", ...old }), // still running
-      box({ id: "o1", plan: "l4", ...old }), // on-demand: never reclaimed
-      box({ id: "s3", plan: "a100-spot", ...old }), // no VM listed: left alone
+      box({ id: "s1", plan: "l4", ...old }), // reclaimed, unreported
+      box({ id: "s2", plan: "l4", ...old }), // still running
+      box({ id: "o1", plan: "l4-ondemand", ...old }), // on-demand: never reclaimed
+      box({ id: "s3", plan: "a100", ...old }), // no VM listed: left alone
     ];
     const vms = [
       { box_id: "s1", status: "TERMINATED" },
@@ -143,7 +143,7 @@ describe("unreportedReclaims", () => {
   });
 
   it("leaves a box that changed around the listing alone", () => {
-    const started = box({ id: "s1", plan: "l4-spot", status: "running", updated_at: LISTED - 30 });
+    const started = box({ id: "s1", plan: "l4", status: "running", updated_at: LISTED - 30 });
     expect(unreportedReclaims([started], [{ box_id: "s1", status: "TERMINATED" }], LISTED)).toEqual([]);
   });
 });
@@ -170,17 +170,17 @@ describe("maybeReconcile", () => {
   it("queues a reconcile run when a Spot box runs and none ran lately", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { e, runs } = env(true);
-    await maybeReconcile(e, ["l4-spot"], NOW);
+    await maybeReconcile(e, ["l4"], NOW);
     expect(runs).toHaveLength(2);
     expect(runs[1]).toMatch(/^INSERT INTO provision_jobs/);
   });
 
   it("does nothing when not due, or on GitHub Actions", async () => {
     const a = env(false);
-    await maybeReconcile(a.e, ["l4-spot"], NOW);
+    await maybeReconcile(a.e, ["l4"], NOW);
     expect(a.runs.filter((s) => s.startsWith("INSERT"))).toEqual([]);
     const b = env(true, "github");
-    await maybeReconcile(b.e, ["l4-spot"], NOW);
+    await maybeReconcile(b.e, ["l4"], NOW);
     expect(b.runs).toEqual([]);
   });
 });

@@ -13,7 +13,7 @@ describe("PLAN_ZONES", () => {
   });
 
   it("gives a Spot plan its GPU's zones", () => {
-    expect(planZones("l4-spot", "us-central1")).toEqual(PLAN_ZONES.l4["us-central1"]);
+    expect(planZones("l4-ondemand", "us-central1")).toEqual(PLAN_ZONES.l4["us-central1"]);
   });
 
   it("covers every region, with each zone in its own region", () => {
