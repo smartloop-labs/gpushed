@@ -308,7 +308,7 @@ export async function runMetering(env: Env, now: number): Promise<void> {
 }
 
 // Ask the provisioner to run `action` on a box the cron just moved into
-// stopping/destroying. If GitHub can't be reached, put the box back in
+// stopping/destroying. If the provisioner can't be reached, put the box back in
 // `revertTo` so the next run (5 minutes later) tries again; left in
 // stopping/destroying, the balance check would never select it again.
 export async function dispatchOrRevert(
@@ -328,7 +328,8 @@ export async function dispatchOrRevert(
   }
 }
 
-// The provision job times out after 30 minutes (.github/workflows/provision.yml);
+// The provision job times out after 30 minutes (the Cloud Run job in
+// infra/bootstrap, or .github/workflows/provision.yml);
 // allow for queueing behind another run of the same box.
 export const STUCK_AFTER_SEC = 45 * 60;
 

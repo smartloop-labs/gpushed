@@ -7,6 +7,10 @@
 #   v1.2.3/gpushed-cli-arm64.oci.tar(.sha256)  client image, `container image load`
 #   v1.2.3/gpushed-provisioner-amd64.tar.gz(.sha256)  used by provision.yml
 #
+# and push the provisioner image to Artifact Registry (vars.GCP_PROVISIONER_IMAGE)
+# and point the gpushed-provisioner Cloud Run job at it (skipped until
+# Bootstrap GCP has set GCP_RELEASE_SERVICE_ACCOUNT).
+#
 # On main (a push touching site/ or install.sh, or a manual run): publishes the
 # website (site/) and install.sh to https://gpushed.dev (a static-assets
 # Worker, infra/site/wrangler.toml) and to https://gpushed.smartloop.ai via
@@ -25,6 +29,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # Workload Identity Federation (Artifact Registry, Cloud Run)
 
 jobs:
   release:
@@ -59,7 +64,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh
+          bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh provisioner/worker.sh
           docker run --rm --entrypoint provision "gpushed-provisioner:$V" 2>&1 | grep -q usage
           docker buildx build --platform linux/amd64 --load -t gpushed-cli:test -f client/Containerfile client
           docker run --rm gpushed-cli:test gpushed-cli version | grep -q .
@@ -83,6 +88,39 @@ jobs:
           # Point "latest" at this release only once all its files are there.
           printf '%s' "$V" | aws s3 cp - "s3://$BUCKET/latest" --endpoint-url "$R2_ENDPOINT" \
             --content-type text/plain --cache-control "max-age=60"
+
+      - id: gcp
+        name: Check GCP setup
+        env:
+          RELEASE_SA: ${{ vars.GCP_RELEASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$RELEASE_SA" ]; then
+            echo "::warning::GCP_RELEASE_SERVICE_ACCOUNT is not set; run Bootstrap GCP (apply). Not updating the Cloud Run job."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: google-github-actions/auth@v2
+        if: steps.gcp.outputs.skip != 'true'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_RELEASE_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.gcp.outputs.skip != 'true'
+
+      - name: Push provisioner image and update the Cloud Run job
+        if: steps.gcp.outputs.skip != 'true'
+        env:
+          IMAGE: ${{ vars.GCP_PROVISIONER_IMAGE }}
+          CLOUD_RUN_JOB: ${{ vars.CLOUD_RUN_JOB }} # projects/P/locations/R/jobs/NAME
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker "${IMAGE%%/*}" --quiet
+          docker tag "gpushed-provisioner:$V" "$IMAGE:$V"
+          docker push -q "$IMAGE:$V"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$V")
+          IFS=/ read -r _ project _ region _ job <<<"$CLOUD_RUN_JOB"
+          gcloud run jobs update "$job" --project "$project" --region "$region" --image "$digest" --quiet
 
       - name: Create GitHub release
         env:

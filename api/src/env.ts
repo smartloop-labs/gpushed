@@ -10,6 +10,8 @@ export interface Env {
   LOW_BALANCE_USD: string; // warn at or below this balance
   STOPPED_GRACE_HOURS: string; // destroy a box stopped for lack of funds after this long
   IDLE_STOP_MINUTES?: string; // a box with an idle GPU stops itself after this many minutes (0: never)
+  PROVISIONER?: string; // "cloudrun": run the Cloud Run job; otherwise ("github") the provision workflow
+  CLOUD_RUN_JOB?: string; // projects/<p>/locations/<region>/jobs/gpushed-provisioner
   GITHUB_REPO: string; // owner/name holding the provision workflow
   GITHUB_WORKFLOW: string; // e.g. provision.yml
   GITHUB_REF: string; // branch the workflow runs from
@@ -21,7 +23,8 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   RESEND_API_KEY?: string;
   GITHUB_TOKEN?: string; // fine-grained token: Actions read/write on GITHUB_REPO
-  PROVISIONER_SECRET?: string; // shared with the provision workflow
+  GCP_DISPATCH_KEY?: string; // JSON key of gpushed-dispatcher: run.invoker on CLOUD_RUN_JOB only
+  PROVISIONER_SECRET?: string; // shared with the provisioner
   SMARTLOOP_SERVICE_SECRET?: string; // smartloop API's GPUSHED_SERVICE_SECRET: spends and tops up credits
 }
 

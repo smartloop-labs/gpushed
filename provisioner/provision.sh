@@ -2,16 +2,21 @@
 #
 # provision ACTION BOX_ID     (ACTION: up | start | stop | down)
 #
-# Runs inside the provisioner image on GitHub Actions. Fetches the box's spec
+# Runs inside the provisioner image: on Cloud Run (started by provision-worker,
+# worker.sh) or on GitHub Actions (provision.yml). Fetches the box's spec
 # from the gpushed API, runs Terraform with state in R2, and reports the result
 # back. Everything secret arrives through the environment:
 #
 #   GPUSHED_API, PROVISIONER_SECRET            the API and its shared secret
-#   GOOGLE_APPLICATION_CREDENTIALS, GCP_PROJECT  GCP (Workload Identity or SA key)
+#   GCP_PROJECT                                our GCP project
+#   GOOGLE_APPLICATION_CREDENTIALS             optional: a credentials file (Workload
+#                                              Identity or SA key); on Cloud Run the
+#                                              job's service account is used instead
 #   R2_ENDPOINT, R2_STATE_BUCKET               Terraform state location
 #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   R2 API token
 #
-# Output is kept terse on purpose: workflow logs may be visible to others, so
+# Output is kept terse on purpose: logs may be visible to others (GitHub
+# Actions logs of a public repo), so
 # Terraform's own output (which includes IPs and keys) only goes to a file and
 # is shown, filtered, on failure.
 
@@ -21,7 +26,7 @@ ACTION="${1:-}"
 BOX_ID="${2:-}"
 case "$ACTION" in up|start|stop|down) ;; *) echo "usage: provision up|start|stop|down BOX_ID"; exit 2 ;; esac
 [[ $BOX_ID =~ ^b[a-z0-9]{11}$ ]] || { echo "invalid box id"; exit 2; }
-for v in GPUSHED_API PROVISIONER_SECRET GOOGLE_APPLICATION_CREDENTIALS GCP_PROJECT R2_ENDPOINT R2_STATE_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+for v in GPUSHED_API PROVISIONER_SECRET GCP_PROJECT R2_ENDPOINT R2_STATE_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
   [ -n "${!v:-}" ] || { echo "missing environment variable $v"; exit 2; }
 done
 
@@ -82,12 +87,16 @@ GPU_NAME=$(jq -r '.plan // "gpu"' <<<"$SPEC" | tr '[:lower:]' '[:upper:]') # l4 
 AVOID=" $(jq -r '(.avoid_zones // []) | join(" ")' <<<"$SPEC") "
 KNOWN_ZONES=$(jq -r '(.zones // [])[]' <<<"$SPEC") # from the API's zone table
 
-gcloud auth login --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet >/dev/null 2>&1
+if [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+  gcloud auth login --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet >/dev/null 2>&1
+fi # else: the metadata server's service account (Cloud Run), for gcloud and Terraform alike
 gcloud config set project "$GCP_PROJECT" --quiet >/dev/null 2>&1
 
 case "$ACTION" in up|start) progress "getting ready to talk to Google Cloud" ;; esac
 
 cd "$TF_DIR"
+# One Cloud Run execution may run several jobs in turn: start clean.
+rm -f box.auto.tfvars.json image.auto.tfvars.json
 # Each region has a subnet named gpushed-<region> (infra/bootstrap); region,
 # zone and subnetwork are passed per apply since a new box may try several.
 jq -n --argjson s "$SPEC" --arg project "$GCP_PROJECT" --arg api "$GPUSHED_API" '{

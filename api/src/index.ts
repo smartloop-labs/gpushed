@@ -11,6 +11,9 @@ import { HttpError, boxId, hmacSha256Hex, isZone, json, normalizeUserCode, nowSe
 const SSH_USER = "boxuser";
 // How long a zone that ran out of a machine type is tried last for new boxes.
 const STOCKOUT_SECS = 20 * 60;
+// A provision job older than this (the Cloud Run job times out at 30 minutes)
+// is dead: queued and never claimed, or claimed by an execution that died.
+const JOB_STALE_SEC = 45 * 60;
 const SSH_KEY_RE = /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$/;
 // Statuses of a box whose VM may exist; a user has at most one such box.
 const ACTIVE = "status != 'destroyed'";
@@ -203,8 +206,9 @@ function account(env: Env, user: User) {
 }
 
 async function dispatchOrFail(env: Env, box: Box, action: ProvisionAction, now: number): Promise<void> {
-  // Until the provisioner job starts (GitHub queues it for a runner, often
-  // 10-30 s) the CLI shows this; the job then reports its own steps.
+  // Until the provisioner starts (a few seconds on Cloud Run; GitHub queues
+  // it for a runner, often 10-30 s) the CLI shows this; it then reports its
+  // own steps.
   if (action === "up" || action === "start") {
     await env.DB.prepare("UPDATE boxes SET progress = ?2 WHERE id = ?1").bind(box.id, "waiting for a provisioning worker").run();
   }
@@ -623,7 +627,7 @@ route("DELETE", "/box", async (req, env) => {
   return json({ box: boxView(updated) });
 });
 
-// ---------------------------------------------------------------- provisioner (GitHub Actions)
+// ---------------------------------------------------------------- provisioner (Cloud Run job or GitHub Actions)
 
 route("GET", "/internal/boxes/:id", async (req, env, p) => {
   requireProvisioner(req, env);
@@ -756,6 +760,50 @@ route("POST", "/internal/boxes/:id/progress", async (req, env, p) => {
     );
   }
   if (stmts.length) await env.DB.batch(stmts);
+  return json({ ok: true });
+});
+
+// A Cloud Run execution of the provisioner takes the next job it may run:
+// the oldest queued one whose box has no job running. Runs of one box are so
+// done one at a time, in order; an execution that finds nothing (the box's
+// earlier run will pick its job up when it's done) just exits. A job still
+// "running" long after the job's 30-minute timeout belongs to an execution
+// that died, and no longer holds its box; queued jobs that old are dropped.
+route("POST", "/internal/jobs/claim", async (req, env) => {
+  requireProvisioner(req, env);
+  const r = await readJson<{ execution?: string }>(req);
+  const now = nowSec();
+  const stale = now - JOB_STALE_SEC;
+  const job = await env.DB.prepare(
+    `UPDATE provision_jobs SET status = 'running', started_at = ?1, execution = ?2
+     WHERE status = 'queued' AND id = (
+       SELECT j.id FROM provision_jobs j
+       WHERE j.status = 'queued' AND j.created_at > ?3
+         AND NOT EXISTS (SELECT 1 FROM provision_jobs r WHERE r.box_id = j.box_id AND r.status = 'running' AND r.started_at > ?3)
+       ORDER BY j.id LIMIT 1)
+     RETURNING id, box_id, action`,
+  )
+    .bind(now, String(r.execution ?? "").slice(0, 200) || null, stale)
+    .first<{ id: number; box_id: string; action: ProvisionAction }>();
+  if (!job) return new Response(null, { status: 204 });
+  return json({ id: job.id, box_id: job.box_id, action: job.action });
+});
+
+route("POST", "/internal/jobs/:id/done", async (req, env, p) => {
+  requireProvisioner(req, env);
+  const r = await readJson<{ ok?: boolean }>(req);
+  const now = nowSec();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE provision_jobs SET status = 'done', ok = ?2, finished_at = ?3 WHERE id = ?1").bind(
+      Number(p.id),
+      r.ok ? 1 : 0,
+      now,
+    ),
+    // Keep a week of history for looking into problems.
+    env.DB.prepare("DELETE FROM provision_jobs WHERE (status = 'done' AND finished_at < ?1) OR created_at < ?1").bind(
+      now - 7 * 86_400,
+    ),
+  ]);
   return json({ ok: true });
 });
 

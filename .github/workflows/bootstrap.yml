@@ -2,8 +2,10 @@
 # GitHub instead of an admin's laptop: Actions > Bootstrap GCP > Run workflow.
 # Run "plan" first to see what it will change, then "apply".
 #
-# Creates the box network and firewall, the provisioner service account, and
-# Workload Identity Federation for provision.yml (see infra/bootstrap/main.tf).
+# Creates the box network and firewall, the provisioner service account, the
+# gpushed-provisioner Cloud Run job with its registry and secrets, the
+# dispatcher and releaser accounts, and Workload Identity Federation for the
+# workflows (see infra/bootstrap/main.tf).
 # Terraform state is kept in R2 at <R2_STATE_BUCKET>/bootstrap/terraform.tfstate,
 # so re-running it updates the same resources.
 #
@@ -13,7 +15,9 @@
 #                                (e.g. roles/owner). Only this workflow uses
 #                                it; delete the key when you're done.
 #   secret   R2_STATE_ACCESS_KEY_ID / R2_STATE_SECRET_ACCESS_KEY
-#   variable R2_ENDPOINT, R2_STATE_BUCKET
+#   secret   PROVISIONER_SECRET  (these three are copied into Secret Manager
+#                                for the Cloud Run job; re-run after changing one)
+#   variable R2_ENDPOINT, R2_STATE_BUCKET, GPUSHED_API
 #   secret   GH_ADMIN_TOKEN      optional: a GitHub token that can write this
 #                                repo's environment variables. With it, apply
 #                                stores the outputs (GCP_PROJECT, ...) in the
@@ -61,6 +65,13 @@ jobs:
       # current name, so a rename is fixed by re-running this workflow.
       TF_VAR_github_repo: ${{ github.repository }}
       TF_VAR_github_ref: refs/heads/main
+      # The provisioner Cloud Run job's settings and secrets.
+      TF_VAR_gpushed_api: ${{ vars.GPUSHED_API }}
+      TF_VAR_r2_endpoint: ${{ vars.R2_ENDPOINT }}
+      TF_VAR_r2_state_bucket: ${{ vars.R2_STATE_BUCKET }}
+      TF_VAR_provisioner_secret: ${{ secrets.PROVISIONER_SECRET }}
+      TF_VAR_r2_state_access_key_id: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
+      TF_VAR_r2_state_secret_access_key: ${{ secrets.R2_STATE_SECRET_ACCESS_KEY }}
     steps:
       - name: Check inputs
         working-directory: .
