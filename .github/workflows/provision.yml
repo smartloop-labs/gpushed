@@ -43,6 +43,16 @@ jobs:
       - name: Check inputs
         run: '[[ $BOX_ID =~ ^b[a-z0-9]{11}$ ]] || { echo "invalid box id"; exit 1; }'
 
+      - name: Report progress
+        if: inputs.action == 'up' || inputs.action == 'start'
+        env:
+          GPUSHED_API: ${{ vars.GPUSHED_API }}
+          PROVISIONER_SECRET: ${{ secrets.PROVISIONER_SECRET }}
+        run: |
+          curl -fsS -m 10 -X POST "$GPUSHED_API/internal/boxes/$BOX_ID/progress" \
+            -H "authorization: Bearer $PROVISIONER_SECRET" -H "content-type: application/json" \
+            --data '{"message":"starting the provisioner"}' >/dev/null || true
+
       - uses: actions/checkout@v5
 
       - name: Load provisioner image from R2

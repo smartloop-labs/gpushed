@@ -85,6 +85,8 @@ KNOWN_ZONES=$(jq -r '(.zones // [])[]' <<<"$SPEC") # from the API's zone table
 gcloud auth login --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet >/dev/null 2>&1
 gcloud config set project "$GCP_PROJECT" --quiet >/dev/null 2>&1
 
+case "$ACTION" in up|start) progress "getting ready to talk to Google Cloud" ;; esac
+
 cd "$TF_DIR"
 # Each region has a subnet named gpushed-<region> (infra/bootstrap); region,
 # zone and subnetwork are passed per apply since a new box may try several.
@@ -124,7 +126,28 @@ tf_vars() { # ZONE -> TF_VARS
 
 apply() { # ZONE STATUS
   tf_vars "$1"
-  terraform apply -input=false -auto-approve "${TF_VARS[@]}" -var="desired_status=$2" >>"$LOG" 2>&1
+  if [ "$2" != RUNNING ]; then
+    terraform apply -input=false -auto-approve "${TF_VARS[@]}" -var="desired_status=$2" >>"$LOG" 2>&1
+    return
+  fi
+  # Bringing a VM up takes minutes; show what GCP is doing meanwhile.
+  terraform apply -input=false -auto-approve "${TF_VARS[@]}" -var="desired_status=$2" >>"$LOG" 2>&1 &
+  local pid=$! last="" now msg
+  while kill -0 "$pid" 2>/dev/null; do
+    now=$(gcloud compute instances describe "gp-$BOX_ID" --zone "$1" --format="value(status)" 2>/dev/null || true)
+    if [ "$now" != "$last" ]; then
+      case "$now" in
+        PROVISIONING) msg="Google is reserving a $GPU_NAME for you in $1" ;;
+        STAGING) msg="attaching the $GPU_NAME, disk and network in $1" ;;
+        RUNNING) msg="booting your VM in $1" ;;
+        *) msg="" ;;
+      esac
+      [ -z "$msg" ] || progress "$msg"
+      last=$now
+    fi
+    sleep 8
+  done
+  wait "$pid"
 }
 
 outputs_and_report() {
