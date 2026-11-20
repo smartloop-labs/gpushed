@@ -29,10 +29,15 @@ resource "google_compute_instance" "box" {
     }
   }
 
-  # GPU instances can't live-migrate.
+  # GPU instances can't live-migrate. A Spot box (var.spot) can be reclaimed
+  # by Google at any time: it's then stopped, not deleted, so the disk is kept
+  # and `gpushed start` resumes it.
   scheduling {
-    on_host_maintenance = "TERMINATE"
-    automatic_restart   = true
+    on_host_maintenance         = "TERMINATE"
+    automatic_restart           = !var.spot
+    preemptible                 = var.spot
+    provisioning_model          = var.spot ? "SPOT" : "STANDARD"
+    instance_termination_action = var.spot ? "STOP" : null
   }
 
   # Secure Boot off so the NVIDIA kernel module loads.
@@ -44,6 +49,8 @@ resource "google_compute_instance" "box" {
 
   network_interface {
     subnetwork = data.google_compute_subnetwork.box.self_link
+    # A3 (H100) machines need gVNIC; the others keep the default (VIRTIO_NET).
+    nic_type = startswith(var.machine_type, "a3-") ? "GVNIC" : null
     access_config {} # ephemeral public IPv4
   }
 
@@ -59,6 +66,8 @@ resource "google_compute_instance" "box" {
     gpushed-box-id       = var.box_id
     gpushed-idle-token   = var.idle_token
     gpushed-idle-minutes = tostring(var.idle_minutes)
+    # Runs as the VM shuts down; tells the API when Google reclaimed a Spot box.
+    shutdown-script = file("${path.module}/scripts/shutdown.sh")
   }
 
   tags = ["gpushed-box"]

@@ -2,7 +2,8 @@
 //
 // GCP prices differ by region; the per-region list prices are generated into
 // regions.generated.ts by scripts/gcp-prices.mjs from the Cloud Billing
-// Catalog. A box is priced at the region it actually runs in.
+// Catalog. A box is priced at the region it actually runs in, at the Spot
+// price for a Spot plan.
 
 import { REGION_PRICES } from "./regions.generated";
 
@@ -15,6 +16,10 @@ export interface Plan {
   // False while GCP hasn't granted us quota for it: listed in `gpushed plans`
   // with its price, but a box can't be created on it yet.
   available: boolean;
+  // Runs as a GCP Spot VM: cheaper, but Google may reclaim it at any time.
+  // A reclaimed box is stopped with its disk kept (Terraform's
+  // instance_termination_action), and its shutdown hook tells the API.
+  spot?: boolean;
 }
 
 // The machine each plan runs on. scripts/gcp-prices.mjs has the same plans
@@ -44,9 +49,9 @@ export const PLANS: Record<string, Plan> = {
     gpuCount: 0,
     available: true,
   },
-  // On-demand H100 quota (GPUS_PER_GPU_FAMILY, NVIDIA_H100) is granted in
-  // asia-east1 only, so that's where it's offered (capacity.generated.ts).
-  // Spot quota doesn't count: boxes run on-demand.
+  // GCP creates a3-highgpu-1g (and -2g, -4g) only as Spot or Flex-start, never
+  // on-demand, so H100 boxes are Spot. Offered in asia-east1 only, where the
+  // H100 family quota is granted (capacity.generated.ts).
   h100: {
     id: "h100",
     label: "1x NVIDIA H100 80 GB, 26 vCPU, 234 GB RAM",
@@ -54,6 +59,7 @@ export const PLANS: Record<string, Plan> = {
     gpuType: "",
     gpuCount: 0,
     available: true,
+    spot: true,
   },
 };
 
@@ -81,9 +87,11 @@ export function withPremium(costUsd: number, premiumPct: number): number {
   return Math.round(costUsd * (1 + premiumPct / 100) * 1e6);
 }
 
-// GCP's hourly cost of running a plan in a region, or null if it isn't sold there.
+// GCP's hourly cost of running a plan in a region (its Spot price for a Spot
+// plan), or null if it isn't sold there.
 export function gcpHourlyUsd(planId: string, region: string): number | null {
-  return REGION_PRICES[region]?.plans[planId] ?? null;
+  const prices = REGION_PRICES[region];
+  return (PLANS[planId]?.spot ? prices?.spot[planId] : prices?.plans[planId]) ?? null;
 }
 
 export function diskHourlyUsd(region: string): number {

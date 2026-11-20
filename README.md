@@ -48,12 +48,15 @@ gpushed plans
 | `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4` (default) | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
-| `h100` (coming soon) | 1x H100 80 GB | a3-highgpu-1g | $13.21 |
+| `h100` (Spot, Taiwan) | 1x H100 80 GB | a3-highgpu-1g | $9.19 |
 
-`h100` is listed but can't be created yet: it's waiting on GCP H100 quota.
+`h100` runs as a GCP **Spot VM**: GCP sells the single-H100 machine only that
+way. It's cheaper, but Google may reclaim it at any time. The box is then
+stopped with its disk kept (whatever was running ends), you get an email, and
+`gpushed start` resumes it once an H100 is free. Save checkpoints often.
 
-Prices are GCP's on-demand cost of the machine, its 100 GB SSD and IP, plus
-20%. A box is billed per second from when it's created until it's deleted. A
+Prices are GCP's on-demand cost (Spot for `h100`) of the machine, its 100 GB
+SSD and IP, plus 20%. A box is billed per second from when it's created until it's deleted. A
 stopped box costs only its disk (about $0.03/hour).
 
 **Regions.** Boxes run in us-central1 (Iowa), us-east1 (South Carolina),
@@ -89,7 +92,7 @@ with no credit for 24 hours is deleted.
 | `gpushed plans` | GPUs available and their prices |
 | `gpushed up [plan]` | Create your box and watch it install the driver + CUDA |
 | `gpushed status` | Show your box |
-| `gpushed ssh [cmd]` | SSH into the box, or run a command on it |
+| `gpushed ssh [cmd]` | SSH into the box, or run a command on it. Starts a stopped box first, or creates one (default plan) if you have none |
 | `gpushed stop` / `start` | Pause and resume (disk kept) |
 | `gpushed down` | Delete the box and its disk |
 | `gpushed update` | Upgrade to the latest release |

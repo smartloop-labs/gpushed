@@ -90,7 +90,7 @@ cd "$TF_DIR"
 # zone and subnetwork are passed per apply since a new box may try several.
 jq -n --argjson s "$SPEC" --arg project "$GCP_PROJECT" --arg api "$GPUSHED_API" '{
   project_id: $project, box_id: $s.id, machine_type: $s.machine_type,
-  gpu_type: $s.gpu_type, gpu_count: $s.gpu_count,
+  gpu_type: $s.gpu_type, gpu_count: $s.gpu_count, spot: ($s.spot // false),
   ssh_user: $s.ssh_user, ssh_public_key: $s.ssh_public_key,
   api_url: $api, idle_token: ($s.idle_token // ""), idle_minutes: ($s.idle_minutes // 5)
 }' > box.auto.tfvars.json

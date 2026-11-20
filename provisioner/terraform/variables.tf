@@ -52,6 +52,12 @@ variable "gpu_count" {
   default = 0
 }
 
+variable "spot" {
+  description = "Run as a Spot VM (the plan's machine is only sold that way): Google may reclaim it, which stops it"
+  type        = bool
+  default     = false
+}
+
 variable "ssh_user" {
   type    = string
   default = "boxuser"
