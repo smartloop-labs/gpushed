@@ -203,6 +203,11 @@ function account(env: Env, user: User) {
 }
 
 async function dispatchOrFail(env: Env, box: Box, action: ProvisionAction, now: number): Promise<void> {
+  // Until the provisioner job starts (GitHub queues it for a runner, often
+  // 10-30 s) the CLI shows this; the job then reports its own steps.
+  if (action === "up" || action === "start") {
+    await env.DB.prepare("UPDATE boxes SET progress = ?2 WHERE id = ?1").bind(box.id, "waiting for a provisioning worker").run();
+  }
   try {
     await dispatchProvision(env, action, box.id);
   } catch (e) {
