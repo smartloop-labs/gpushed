@@ -13,11 +13,13 @@
 #
 # On main (a push touching site/ or install.sh, or a manual run): publishes the
 # website (site/) and install.sh to https://gpushed.dev (a static-assets
-# Worker, infra/site/wrangler.toml) and to https://gpushed.smartloop.ai via
-# GitHub Pages, kept for links and install commands already out there; the
-# install command is curl -fsSL gpushed.dev/install.sh | bash
-# Pages deploys only from main: the github-pages environment rejects tags, and
-# install.sh looks up the latest release itself, so tags don't need to redeploy.
+# Worker, infra/site/wrangler.toml, also serving https://gpushed.smartloop.ai
+# for links and install commands already out there); the install command is
+# curl -fsSL gpushed.dev/install.sh | bash. The site deploys only from main:
+# install.sh looks up the latest release itself, so tags don't redeploy it.
+#
+# Secrets are repository secrets (the repository is private): each job runs
+# only on a v* tag or main.
 name: Release
 
 on:
@@ -35,7 +37,6 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment: production # R2 release keys; the environment allows v* tags
     env:
       V: ${{ github.ref_name }}
     steps:
@@ -128,35 +129,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$V" dist/gpushed.tar.gz dist/gpushed.tar.gz.sha256 install.sh --title "$V" --generate-notes
 
-  pages:
-    needs: release
-    if: ${{ github.ref == 'refs/heads/main' && !failure() && !cancelled() }}
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Build site
-        run: |
-          mkdir -p _site
-          cp -R site/. _site/
-          cp install.sh _site/install.sh
-          touch _site/.nojekyll
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: _site
-      - id: deploy
-        uses: actions/deploy-pages@v4
-
   site:
     needs: release
     if: ${{ github.ref == 'refs/heads/main' && !failure() && !cancelled() }}
     runs-on: ubuntu-latest
-    environment: production # Cloudflare API token
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
