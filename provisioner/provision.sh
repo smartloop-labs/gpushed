@@ -126,6 +126,30 @@ offering_zones() {
   echo "$zones" | grep -v '^$' || true
 }
 
+# Zones Google's capacity advisor rates likely to have a Spot VM of this
+# machine type now (obtainability >= CAPACITY_MIN_SCORE), asking every region
+# at once. Prints nothing if the advisor can't be asked (it is an alpha API
+# that needs Google to enable it for the project; until then, a 403) or for
+# on-demand plans, which it doesn't rate: callers then keep the usual order.
+CAPACITY_MIN_SCORE=${CAPACITY_MIN_SCORE:-0.5}
+capacity_advice() {
+  [ "$(jq -r '.spot // false' <<<"$SPEC")" = true ] || return 0
+  local dir region
+  dir=$(mktemp -d)
+  for region in $REGIONS; do
+    timeout 20 gcloud alpha compute advice capacity --region "$region" \
+      --provisioning-model SPOT --size 1 --target-distribution-shape any-single-zone \
+      --instance-selection-machine-types "$MACHINE" --format json \
+      >"$dir/$region.json" 2>/dev/null &
+  done
+  wait
+  cat "$dir"/*.json 2>/dev/null | jq -r --argjson min "$CAPACITY_MIN_SCORE" '
+    (if type == "array" then .[] else . end) | (.recommendations // [])[]
+    | select((.scores.obtainability // 0) >= $min) | (.shards // [])[].zone // empty
+    | split("/") | last' 2>/dev/null | sort -u || true
+  rm -rf "$dir"
+}
+
 region_of() { sed -E 's/-[a-z]$//' <<<"$1"; } # us-central1-b -> us-central1
 
 tf_vars() { # ZONE -> TF_VARS
@@ -185,12 +209,18 @@ case "$ACTION" in
     # (avoid_zones, from earlier runs) go to the very end.
     progress "finding a zone with a free $GPU_NAME"
     if [ -n "$KNOWN_ZONES" ]; then OFFERING=$KNOWN_ZONES; else OFFERING=$(offering_zones); fi
-    FRESH=() STALE=()
+    LIKELY=$(capacity_advice)
+    [ -z "$LIKELY" ] || echo "… Google rates these zones likely to have the $GPU_NAME free: $(echo $LIKELY)"
+    FRESH=() STALE=() REST=()
     for region in $REGIONS; do
       for z in $(grep "^$region-[a-z]$" <<<"$OFFERING" | shuf); do
-        if [[ $AVOID == *" $z "* ]]; then STALE+=("$z"); else FRESH+=("$z"); fi
+        if [[ $AVOID == *" $z "* ]]; then STALE+=("$z")
+        elif [ -z "$LIKELY" ] || grep -qx "$z" <<<"$LIKELY"; then FRESH+=("$z")
+        else REST+=("$z"); fi
       done
     done
+    # Zones Google rates likely come first (nearest first), then the others.
+    FRESH+=(${REST[@]+"${REST[@]}"})
     [ ${#STALE[@]} -eq 0 ] || echo "… trying last (out of $GPU_NAME recently): ${STALE[*]}"
     total=$((${#FRESH[@]} + ${#STALE[@]}))
     [ "$total" -gt 0 ] || { FAIL_REASON="no region offers this plan right now"; exit 1; }
