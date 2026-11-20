@@ -37,6 +37,12 @@ MIN_TOPUP_USD = "10"
 LOW_BALANCE_USD = "2"
 STOPPED_GRACE_HOURS = "24"
 IDLE_STOP_MINUTES = "5"
+# Where box provisioning runs: "cloudrun" (the gpushed-provisioner Cloud Run
+# job, CLOUD_RUN_JOB; needs the GCP_DISPATCH_KEY secret) or "github" (the
+# provision.yml workflow; needs GITHUB_TOKEN). Switch to cloudrun once
+# Bootstrap GCP has created the job and a release has pushed its image.
+PROVISIONER = "github"
+CLOUD_RUN_JOB = "" # projects/<project>/locations/us-central1/jobs/gpushed-provisioner (Bootstrap GCP output)
 GITHUB_REPO = "smartloop-labs/gpushed"
 GITHUB_WORKFLOW = "provision.yml"
 GITHUB_REF = "main"
@@ -46,8 +52,12 @@ EMAIL_FROM = "gpushed <noreply@smartloop.ai>"
 #   STRIPE_SECRET_KEY      Stripe secret key (sk_live_... / sk_test_...)
 #   STRIPE_WEBHOOK_SECRET  signing secret of the endpoint .../v1/stripe/webhook
 #   RESEND_API_KEY         sends balance warnings
+#   GCP_DISPATCH_KEY       JSON key of the gpushed-dispatcher service account
+#                          (PROVISIONER = "cloudrun"; may only run the job)
 #   GITHUB_TOKEN           fine-grained PAT, Actions: read & write on GITHUB_REPO
+#                          (PROVISIONER = "github")
 #   PROVISIONER_SECRET     random string, also stored as a GitHub Actions secret
+#                          (Bootstrap GCP copies it into Secret Manager for the job)
 #   SMARTLOOP_SERVICE_SECRET  the smartloop API's GPUSHED_SERVICE_SECRET: credits are
 #                          spent and added through it (one wallet with smartloop)
 
@@ -66,6 +76,8 @@ MIN_TOPUP_USD = "10"
 LOW_BALANCE_USD = "2"
 STOPPED_GRACE_HOURS = "24"
 IDLE_STOP_MINUTES = "5"
+PROVISIONER = "cloudrun" # jobs are queued in D1; with no GCP_DISPATCH_KEY the run is only logged
+CLOUD_RUN_JOB = "projects/dev/locations/us-central1/jobs/gpushed-provisioner"
 GITHUB_REPO = "smartloop-labs/gpushed"
 GITHUB_WORKFLOW = "provision.yml"
 GITHUB_REF = "main"

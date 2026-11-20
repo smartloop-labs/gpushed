@@ -1,7 +1,9 @@
 # Provisioner: Terraform + gcloud + the box's Terraform config. Built by the
-# release workflow, stored in Cloudflare R2, and run by the provision workflow
-# on GitHub Actions. The image itself holds no credentials; the workflow
-# mounts/injects the GCP credentials, R2 keys and API secret at run time.
+# release workflow, pushed to Artifact Registry for the gpushed-provisioner
+# Cloud Run job (entrypoint provision-worker) and to Cloudflare R2 for the
+# provision workflow on GitHub Actions (entrypoint provision). The image holds
+# no credentials: the job's service account and Secret Manager, or the
+# workflow, supply the GCP credentials, R2 keys and API secret at run time.
 # Docker Hub mirror of Google's gcloud image; gcr.io no longer serves old version tags.
 FROM google/cloud-sdk:502.0.0-slim
 
@@ -21,4 +23,5 @@ COPY terraform/ terraform/
 RUN cd terraform && terraform init -backend=false -input=false >/dev/null && rm -rf .terraform/terraform.tfstate
 ENV TF_PLUGIN_CACHE_DIR= TF_IN_AUTOMATION=1 TF_INPUT=0
 COPY provision.sh /usr/local/bin/provision
+COPY worker.sh /usr/local/bin/provision-worker
 ENTRYPOINT ["/usr/local/bin/provision"]

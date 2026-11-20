@@ -2,6 +2,11 @@
 # gpushed API (never by hand in normal operation) with only a box ID; the
 # job fetches the box's spec from the API itself.
 #
+# Only used while the API has PROVISIONER = "github" (api/wrangler.toml).
+# Boxes are now provisioned by the gpushed-provisioner Cloud Run job
+# (infra/bootstrap); this workflow stays as a fallback until that's proven,
+# then goes, with the provisioner's GitHub binding in infra/bootstrap.
+#
 # Keys never live in an image: this job pulls the provisioner image (Terraform
 # + gcloud) from R2, then injects short-lived GCP credentials (Workload
 # Identity Federation, no stored key), the R2 state keys and the API secret

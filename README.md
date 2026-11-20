@@ -130,11 +130,13 @@ can't reach each other.
               gpushed API  (Cloudflare Worker + D1)
               at api.gpushed.dev     · smartloop accounts · balances
               Stripe · metering cron (every 5 min)
-                        │ workflow_dispatch (box ID only)
+                        │ queues the run in D1, starts an execution
+                        │ (run.invoker only, no arguments)
                         ▼
-              GitHub Actions: provision.yml
-              pulls the provisioner image (Terraform + gcloud) from R2 and
-              injects GCP credentials (Workload Identity) + R2 keys at run time
+              Cloud Run job: gpushed-provisioner
+              provisioner image (Terraform + gcloud) from Artifact Registry;
+              claims the queued run from the API, runs as the provisioner
+              service account, R2 keys + API secret from Secret Manager
                         │ terraform (state in R2)
                         ▼
               GCE GPU VM in smartloop's GCP project
@@ -146,15 +148,23 @@ can't reach each other.
 | [`client/`](client) | Client image (`Containerfile`) and the CLI that runs in it |
 | [`api/`](api) | Cloudflare Worker: smartloop sign-in, billing, Stripe webhook, metering, dispatch |
 | [`provisioner/`](provisioner) | Provisioner image, entrypoint and the box's Terraform |
-| [`infra/bootstrap/`](infra/bootstrap) | One-time GCP setup: network, service account, Workload Identity |
-| [`.github/workflows/`](.github/workflows) | `provision.yml`, `release.yml`, `ci.yml` (tests + API deploy) |
+| [`infra/bootstrap/`](infra/bootstrap) | One-time GCP setup: network, service accounts, the provisioner Cloud Run job, Workload Identity |
+| [`.github/workflows/`](.github/workflows) | `release.yml`, `ci.yml` (tests + API deploy), `provision.yml` (the old provisioner, until the switch to Cloud Run) |
 
 **Why the keys aren't in the client image.** The client runs on users' Macs, so
 anything inside it can be read by them. A cloud key there would let anyone
 create VMs in our project without paying. Instead, the client holds only a
-per-user API token; the API checks the balance before it asks GitHub Actions
+per-user API token; the API checks the balance before it asks the provisioner
 (which has the cloud access) to provision anything, and metering runs on the
 server.
+
+**Why the API can only start the provisioner.** The API's GCP key
+(`GCP_DISPATCH_KEY`) may run the `gpushed-provisioner` job and nothing else,
+and not with arguments or environment overrides. What to do is queued in D1
+(`provision_jobs`); the execution claims it from `POST /internal/jobs/claim`
+with the provisioner secret, taking the oldest run whose box has none going,
+so runs of one box happen in order. A leaked key starts executions that find
+nothing to do.
 
 **Accounts.** gpushed users are smartloop accounts. `gpushed login` signs in
 in the browser: the CLI starts a sign-in (`POST /auth/cli/start`) and opens
@@ -192,7 +202,8 @@ price while running and the disk price while stopped.
    npx wrangler r2 bucket domain add gpushed-releases --domain dl.gpushed.dev --zone-id <zone>
    ```
    Create two R2 API tokens: one with write access to `gpushed-releases`
-   (release workflow), one with read/write on `gpushed-state` (provision workflow).
+   (release workflow), one with read/write on `gpushed-state` (the provisioner
+   and the bootstrap).
    Optional: a lifecycle rule to expire old releases' images after 30 days.
 
 2. **API** (Cloudflare Worker + D1):
@@ -204,8 +215,8 @@ price while running and the disk price while stopped.
    npx wrangler secret put STRIPE_WEBHOOK_SECRET   # endpoint: https://api.gpushed.dev/stripe/webhook,
                                                    # events: checkout.session.completed, checkout.session.async_payment_succeeded
    npx wrangler secret put RESEND_API_KEY          # low-balance emails
-   npx wrangler secret put GITHUB_TOKEN            # fine-grained PAT: Actions read/write on this repo
    npx wrangler secret put PROVISIONER_SECRET      # random; same value as the GitHub secret below
+   # GCP_DISPATCH_KEY comes after step 4
    npx wrangler deploy
    ```
    The Worker is served at `api.gpushed.dev` and, for CLIs installed before
@@ -227,13 +238,13 @@ price while running and the disk price while stopped.
 
    | Kind | Name | Value |
    |---|---|---|
-   | variable | `GCP_PROJECT`, `GCP_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER` | set by step 4 |
+   | variable | `GCP_PROJECT`, `GCP_SERVICE_ACCOUNT`, `GCP_IMAGE_SERVICE_ACCOUNT`, `GCP_RELEASE_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_PROVISIONER_IMAGE`, `CLOUD_RUN_JOB` | set by step 4 |
    | variable | `GPUSHED_API` | `https://api.gpushed.dev` |
    | variable | `GPUSHED_DL` | `https://dl.gpushed.dev` |
    | variable | `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
    | variable | `R2_STATE_BUCKET` / `R2_RELEASE_BUCKET` | `gpushed-state` / `gpushed-releases` |
    | variable | `CLOUDFLARE_ACCOUNT_ID` | your account ID |
-   | secret | `PROVISIONER_SECRET` | same as the Worker's |
+   | secret | `PROVISIONER_SECRET` | same as the Worker's (step 4 copies it into Secret Manager) |
    | secret | `R2_STATE_ACCESS_KEY_ID`, `R2_STATE_SECRET_ACCESS_KEY` | state bucket token |
    | secret | `R2_RELEASE_ACCESS_KEY_ID`, `R2_RELEASE_SECRET_ACCESS_KEY` | release bucket token |
    | secret | `CLOUDFLARE_API_TOKEN` | Workers + D1 edit, for API deploys |
@@ -243,17 +254,37 @@ price while running and the disk price while stopped.
    Limit the environment to the `main` branch and `v*` tags (the release
    workflow runs in it on tags).
 
-   This repo is public, so anyone can read workflow logs. `provision.sh` keeps
-   Terraform output out of the log and masks IPs, but running `provision.yml`
-   from a private repo (set `GITHUB_REPO` in `wrangler.toml` and
-   `github_repo` in the bootstrap) keeps box metadata fully private.
+   Boxes are provisioned on Cloud Run, so their logs are in Cloud Logging,
+   not in this public repo's workflow logs.
 
 4. **GCP** (in our project; needs GPU quota in each region): run
    **Actions > Bootstrap GCP** with `plan`, check it, then run it with `apply`.
    It runs [`infra/bootstrap`](infra/bootstrap) with Terraform state in
    `gpushed-state/bootstrap/terraform.tfstate`, and stores its outputs as
    `production` variables (with `GH_ADMIN_TOKEN`; otherwise copy them from
-   the run summary).
+   the run summary). It also creates the `gpushed-provisioner` Cloud Run job
+   (in `us-central1`), its Artifact Registry repo, and Secret Manager copies
+   of `PROVISIONER_SECRET` and the R2 state keys; re-run it after changing
+   any of those.
+
+5. **Provisioner on Cloud Run**:
+   ```bash
+   # The job runs a placeholder image until a release pushes the real one:
+   git tag v0.x.y && git push origin v0.x.y      # see Releasing
+   # The API's key, which may only start the job:
+   gcloud iam service-accounts keys create key.json \
+     --iam-account gpushed-dispatcher@<project>.iam.gserviceaccount.com
+   (cd api && npx wrangler secret put GCP_DISPATCH_KEY < ../key.json) && rm key.json
+   ```
+   Then in [`api/wrangler.toml`](api/wrangler.toml) set
+   `CLOUD_RUN_JOB` to the bootstrap's `CLOUD_RUN_JOB` output and
+   `PROVISIONER = "cloudrun"`, and deploy. To check it by hand, run
+   `gcloud run jobs execute gpushed-provisioner --region us-central1`: with
+   nothing queued it logs "nothing to do" and exits. Until the switch,
+   `PROVISIONER = "github"` keeps using `provision.yml` (with the Worker
+   secret `GITHUB_TOKEN`); set it back to roll back.
+   If your organization blocks service account keys, the API can't start the
+   job this way; keep `PROVISIONER = "github"`.
 
    `GCP_BOOTSTRAP_KEY` is a JSON key for a service account with
    `roles/owner` on the project:
@@ -280,7 +311,9 @@ git tag v0.2.0 && git push origin v0.2.0
 
 The release workflow builds the CLI package, the client image (linux/arm64,
 OCI archive for `container image load`) and the provisioner image
-(linux/amd64), uploads them to R2 under `v0.2.0/`, then moves `latest`.
+(linux/amd64), uploads them to R2 under `v0.2.0/`, then moves `latest`. It
+also pushes the provisioner image to Artifact Registry and points the
+`gpushed-provisioner` Cloud Run job at it, so new box runs use it at once.
 
 ### Local development
 
