@@ -55,6 +55,13 @@ progress() { # MESSAGE [STOCKOUT_ZONE]
     >/dev/null 2>&1 || true
 }
 
+# Terraform's first error line from the log (colours, "Error:" and addresses
+# stripped), for the message the user sees.
+tf_error() {
+  sed -E -e 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -m1 -E 'Error: ' |
+    sed -E -e 's/.*Error: +//' -e 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/x.x.x.x/g' -e 's/ +$//' | cut -c1-240
+}
+
 # Show the end of Terraform's log with addresses and keys blanked out.
 show_log() {
   sed -E -e 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/x.x.x.x/g' -e 's/(ssh-[a-z0-9-]+|ecdsa-[a-z0-9-]+) [A-Za-z0-9+\/=]+/\1 <key>/g' "$LOG" | tail -40
@@ -161,7 +168,7 @@ case "$ACTION" in
     [ ${#STALE[@]} -eq 0 ] || echo "… trying last (out of $GPU_NAME recently): ${STALE[*]}"
     total=$((${#FRESH[@]} + ${#STALE[@]}))
     [ "$total" -gt 0 ] || { FAIL_REASON="no region offers this plan right now"; exit 1; }
-    n=0
+    n=0 stockouts=0 last_error=""
     for z in "${FRESH[@]}" "${STALE[@]}"; do
       n=$((n + 1))
       progress "creating your VM in $z (zone $n of $total)"
@@ -175,11 +182,18 @@ case "$ACTION" in
         progress "$z doesn't offer $GPU_NAME any more, moving on"
         continue
       fi
-      if ! grep -qE 'STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|does not have enough resources available|QUOTA_EXCEEDED|Quota .* exceeded' "$LOG"; then
-        FAIL_REASON="could not create the box"
+      if grep -qE 'STOCKOUT|ZONE_RESOURCE_POOL_EXHAUSTED|does not have enough resources available|QUOTA_EXCEEDED|Quota .* exceeded' "$LOG"; then
+        stockouts=$((stockouts + 1))
+        progress "no $GPU_NAME free in $z, moving on" "$z"
+      elif grep -qE 'Internal error|backendError|Please try again' "$LOG"; then
+        # Google's side failed; worth trying the next zone, but not a stockout.
+        last_error=$(tf_error)
+        progress "Google Cloud failed to create the VM in $z, moving on"
+      else
+        err=$(tf_error)
+        FAIL_REASON="could not create the box${err:+: $err}"
         exit 1
       fi
-      progress "no $GPU_NAME free in $z, moving on" "$z"
       # Remove whatever was half-created there, if anything: a stockout
       # usually leaves nothing, and a destroy would only cost time.
       if terraform state list 2>/dev/null | grep -q .; then
@@ -187,6 +201,10 @@ case "$ACTION" in
         terraform destroy -input=false -auto-approve "${TF_VARS[@]}" >>"$LOG" 2>&1 || true
       fi
     done
+    if [ "$stockouts" -eq 0 ] && [ -n "$last_error" ]; then
+      FAIL_REASON="Google Cloud could not create the $GPU_NAME VM ($last_error); try again in a few minutes"
+      exit 1
+    fi
     FAIL_REASON="no $GPU_NAME capacity anywhere right now; try again in a few minutes or another plan"
     exit 1
     ;;

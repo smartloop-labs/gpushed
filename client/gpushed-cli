@@ -9,6 +9,7 @@ set -euo pipefail
 API="${GPUSHED_API:-https://api.gpushed.dev}"
 SMARTLOOP_API="${GPUSHED_SMARTLOOP_API:-https://api.smartloop.ai}"
 SIGNUP_URL="${GPUSHED_SIGNUP_URL:-https://app.smartloop.ai/signup}"
+TOPUP_URL="${GPUSHED_TOPUP_URL:-https://app.smartloop.ai/gpushed}"
 STATE="${GPUSHED_STATE:-/state}"
 TOKEN_FILE="$STATE/token"
 KEY="$STATE/box_ssh_key"
@@ -121,14 +122,19 @@ wait_for() {
           say "   … $now_step"
         fi
       fi
-      step=$now_step
       if [ "$status" != "$last" ]; then
-        if [ $live = 1 ] && [ -n "$last" ]; then
+        if [ $live = 1 ] && [ -n "$last" ] && [ "$status" = failed ]; then
+          # The step didn't finish: don't print its "done" line.
+          printf '\r\033[K   ✗ %s failed after %s\n' "${step:-$(describe_status "$last")}" "$(elapsed $((SECONDS - since)))"
+        elif [ $live = 1 ] && [ -n "$last" ]; then
           printf '\r\033[K   ✓ %s in %s\n' "$(describe_done "$last")" "$(elapsed $((SECONDS - since)))"
         fi
         [ $live = 1 ] || say "   … $(describe_status "$status")"
         last=$status since=$SECONDS
       fi
+      # Updated only now so a failure above names the step it failed in (the
+      # API clears progress once the provisioner reports).
+      step=$now_step
       if [[ $want == *" $status "* ]]; then
         [ $live = 1 ] && printf '\r\033[K'
         return 0
@@ -268,7 +274,7 @@ Account
                            (--email: with an emailed code instead)
   logout                   Sign out on this Mac
   balance                  Show your balance (alias: me)
-  topup [usd]              Add credit with Stripe: \$10, \$25, \$50, \$100 or any amount from \$10
+  topup [usd]              Add credit: pick an amount in the browser, or pass one (from \$10)
   history                  Recent charges and top-ups
 
 Box
@@ -312,19 +318,11 @@ case "$cmd" in
   topup)
     amount="${1:-}"
     if [ -z "$amount" ]; then
-      if [ -t 0 ]; then
-        # The same amounts as the web app; $100 covers a long run on the big GPUs.
-        say "How much credit? \$10 runs an L4 about 11 hours; \$100 runs an A100 about 22."
-        PS3="Amount (1-5): "
-        select choice in '$10' '$25' '$50' '$100' 'Other'; do
-          case $choice in
-            Other) read -r -p "Amount in USD: " amount; break ;;
-            ?*) amount=${choice#\$}; break ;;
-          esac
-        done
-      else
-        amount=10
-      fi
+      # Pick the amount on the smartloop web app, which starts Stripe checkout.
+      say "💳 Opening your browser to choose how much credit to add:"
+      open_url "$TOPUP_URL"
+      say "Your balance updates as soon as the payment goes through: gpushed balance"
+      exit 0
     fi
     [[ $amount =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || die "Usage: gpushed topup [amount in USD, e.g. 25]"
     api POST /topup "{\"amount_usd\": $amount}"; url=$(jq -r .url <<<"$API_BODY")
