@@ -118,7 +118,8 @@ jobs:
           gcloud auth configure-docker "${IMAGE%%/*}" --quiet
           docker tag "gpushed-provisioner:$V" "$IMAGE:$V"
           docker push -q "$IMAGE:$V"
-          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$V")
+          # The registry's digest, not the local one buildx --load also records.
+          digest=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE:$V" | grep -m1 "^$IMAGE@")
           IFS=/ read -r _ project _ region _ job <<<"$CLOUD_RUN_JOB"
           gcloud run jobs update "$job" --project "$project" --region "$region" --image "$digest" --quiet
 
