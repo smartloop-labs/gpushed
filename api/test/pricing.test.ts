@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meterRate } from "../src/billing";
 import { IP_HOURLY_USD, PLANS, chargeMicros, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
+import { REGION_PRICES } from "../src/regions.generated";
 import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone } from "../src/regions";
 
 describe("pricing", () => {
@@ -34,6 +35,14 @@ describe("pricing", () => {
     expect(chargeMicros(1_000_000, 1)).toBe(277);
     expect(chargeMicros(1_000_000, 0)).toBe(0);
     expect(chargeMicros(1_000_000, -5)).toBe(0);
+  });
+
+  it("prices Spot plans (H100) at GCP's Spot price and the rest on-demand", () => {
+    expect(PLANS.h100.spot).toBe(true);
+    expect(gcpHourlyUsd("h100", "asia-east1")).toBe(REGION_PRICES["asia-east1"].spot.h100);
+    expect(gcpHourlyUsd("h100", "asia-east1")!).toBeLessThan(REGION_PRICES["asia-east1"].plans.h100);
+    expect(planPrice(PLANS.h100, "asia-east1", 20)!.hourlyMicros).toBeCloseTo(9.19e6, -4);
+    expect(gcpHourlyUsd("a100", "us-central1")).toBe(REGION_PRICES["us-central1"].plans.a100);
   });
 
   it("offers H100 only where GCP granted quota (Taiwan)", () => {

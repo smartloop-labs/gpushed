@@ -157,6 +157,7 @@ function boxView(box: Box) {
   return {
     id: box.id,
     plan: box.plan,
+    spot: !!PLANS[box.plan]?.spot, // Google may reclaim (stop) it at any time
     status: box.status,
     region: box.region,
     region_name: REGIONS.find((r) => r.id === box.region)?.name ?? box.region,
@@ -352,6 +353,8 @@ route("GET", "/plans", async (req, env) => {
           id: p.id,
           label: p.label,
           machine_type: p.machineType,
+          // A Spot VM: Google may reclaim (stop) it at any time.
+          spot: !!p.spot,
           hourly_usd: usd(price.hourlyMicros),
           stopped_hourly_usd: usd(price.stoppedHourlyMicros),
           // available: can be created now; unavailable: not offered yet (no GCP
@@ -628,6 +631,7 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
     machine_type: plan.machineType,
     gpu_type: plan.gpuType,
     gpu_count: plan.gpuCount,
+    spot: !!plan.spot,
     ssh_user: SSH_USER,
     ssh_public_key: box.ssh_public_key,
     plan: box.plan,
@@ -678,6 +682,35 @@ route("POST", "/boxes/:id/idle", async (req, env, p) => {
       );
     } catch (e) {
       console.error(`idle-stop email for ${box.id} failed`, e);
+    }
+  }
+  return json({ stopped: true });
+});
+
+// The box's shutdown hook (provisioner/terraform/scripts/shutdown.sh): Google
+// is reclaiming this Spot VM, which stops it with its disk kept. Nothing else
+// would tell us, so record it as stopped (billing only the disk from now on)
+// and tell the owner. The VM is already going down: no provisioner run.
+route("POST", "/boxes/:id/preempted", async (req, env, p) => {
+  const box = await getBox(env, p.id);
+  const got = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+  if (!box || !timingSafeEqual(got, await idleToken(env, p.id))) throw new HttpError(401, "unauthorized");
+  if (!PLANS[box.plan]?.spot || box.status !== "running") return json({ stopped: false, status: box.status });
+  const now = nowSec();
+  await updateBox(env, box, { status: "stopped", stopped_at: now, ip: null }, now);
+  const owner = await env.DB.prepare("SELECT email FROM users WHERE id = ?1").bind(box.user_id).first<{ email: string }>();
+  if (owner) {
+    try {
+      await sendEmail(
+        env,
+        owner.email,
+        `gpushed: Google reclaimed your ${box.plan.toUpperCase()} Spot box`,
+        `Your box ${box.id} runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
+          `Its disk and files are kept (billed at the stopped rate); anything that was running was ended.\n\n` +
+          `Resume it with: gpushed start (if there's no ${box.plan.toUpperCase()} free right now, try again in a few minutes)\n`,
+      );
+    } catch (e) {
+      console.error(`preempted email for ${box.id} failed`, e);
     }
   }
   return json({ stopped: true });
