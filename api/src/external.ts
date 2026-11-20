@@ -19,7 +19,7 @@ export async function dispatchProvision(env: Env, action: ProvisionAction, boxId
 // account needs only run.invoker on the job: a leaked key can start
 // executions, which find nothing to claim, and nothing else. The job to do
 // is in D1, where only this API puts it.
-async function dispatchCloudRun(env: Env, action: ProvisionAction, boxId: string): Promise<void> {
+async function dispatchCloudRun(env: Env, action: ProvisionAction | "reconcile", boxId: string): Promise<void> {
   const queued = await env.DB.prepare(
     "INSERT INTO provision_jobs (box_id, action, created_at) VALUES (?1, ?2, ?3) RETURNING id",
   )
@@ -47,6 +47,25 @@ async function dispatchCloudRun(env: Env, action: ProvisionAction, boxId: string
     if (queued) await env.DB.prepare("DELETE FROM provision_jobs WHERE id = ?1").bind(queued.id).run();
     throw e;
   }
+}
+
+// How often the provisioner checks every box VM's real status with GCP
+// (POST /internal/reconcile), while any Spot box is running.
+export const RECONCILE_EVERY_SEC = 15 * 60;
+
+// Called by the cron: queue a reconcile run unless one was queued recently
+// or no Spot box is running. Cloud Run only (provision.yml takes one box).
+export async function maybeReconcile(env: Env, spotPlans: string[], now: number): Promise<void> {
+  if (env.PROVISIONER !== "cloudrun" || spotPlans.length === 0) return;
+  const marks = spotPlans.map((_, i) => `?${i + 2}`).join(", ");
+  const due = await env.DB.prepare(
+    `SELECT 1 FROM boxes WHERE status = 'running' AND plan IN (${marks})
+       AND NOT EXISTS (SELECT 1 FROM provision_jobs WHERE action = 'reconcile' AND created_at > ?1)
+     LIMIT 1`,
+  )
+    .bind(now - RECONCILE_EVERY_SEC, ...spotPlans)
+    .first();
+  if (due) await dispatchCloudRun(env, "reconcile", "");
 }
 
 async function dispatchGitHub(env: Env, action: ProvisionAction, boxId: string): Promise<void> {

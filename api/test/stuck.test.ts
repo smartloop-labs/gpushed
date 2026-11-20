@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type Box, dispatchOrRevert, retryStuckProvisions, STUCK_AFTER_SEC } from "../src/billing";
+import { type Box, dispatchOrRevert, retryStuckProvisions, STUCK_AFTER_SEC, unreportedReclaims } from "../src/billing";
+import { maybeReconcile } from "../src/external";
 import type { Env } from "../src/env";
 
 const NOW = 1_800_000_000;
@@ -119,5 +120,67 @@ describe("retryStuckProvisions", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     await retryStuckProvisions(env, NOW);
     expect(dispatched).toEqual(["a", "b"]);
+  });
+});
+
+describe("unreportedReclaims", () => {
+  const LISTED = NOW;
+  const old = { status: "running" as const, updated_at: LISTED - 3600 };
+
+  it("finds running Spot boxes whose VM GCP has stopped", () => {
+    const boxes = [
+      box({ id: "s1", plan: "l4-spot", ...old }), // reclaimed, unreported
+      box({ id: "s2", plan: "l4-spot", ...old }), // still running
+      box({ id: "o1", plan: "l4", ...old }), // on-demand: never reclaimed
+      box({ id: "s3", plan: "a100-spot", ...old }), // no VM listed: left alone
+    ];
+    const vms = [
+      { box_id: "s1", status: "TERMINATED" },
+      { box_id: "s2", status: "RUNNING" },
+      { box_id: "o1", status: "TERMINATED" },
+    ];
+    expect(unreportedReclaims(boxes, vms, LISTED).map((b) => b.id)).toEqual(["s1"]);
+  });
+
+  it("leaves a box that changed around the listing alone", () => {
+    const started = box({ id: "s1", plan: "l4-spot", status: "running", updated_at: LISTED - 30 });
+    expect(unreportedReclaims([started], [{ box_id: "s1", status: "TERMINATED" }], LISTED)).toEqual([]);
+  });
+});
+
+describe("maybeReconcile", () => {
+  function env(due: boolean, provisioner = "cloudrun") {
+    const runs: string[] = [];
+    const e = {
+      PROVISIONER: provisioner,
+      DEV: "1", // no GCP key: the run is only logged
+      DB: {
+        prepare(sql: string) {
+          const stmt = {
+            bind: () => stmt,
+            first: async () => (runs.push(sql), sql.startsWith("INSERT") ? { id: 1 } : due ? { 1: 1 } : null),
+          };
+          return stmt;
+        },
+      },
+    } as unknown as Env;
+    return { e, runs };
+  }
+
+  it("queues a reconcile run when a Spot box runs and none ran lately", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { e, runs } = env(true);
+    await maybeReconcile(e, ["l4-spot"], NOW);
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatch(/^INSERT INTO provision_jobs/);
+  });
+
+  it("does nothing when not due, or on GitHub Actions", async () => {
+    const a = env(false);
+    await maybeReconcile(a.e, ["l4-spot"], NOW);
+    expect(a.runs.filter((s) => s.startsWith("INSERT"))).toEqual([]);
+    const b = env(true, "github");
+    await maybeReconcile(b.e, ["l4-spot"], NOW);
+    expect(b.runs).toEqual([]);
   });
 });

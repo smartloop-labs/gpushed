@@ -1,9 +1,8 @@
-import { type Box, type User, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, updateBox, welcomeOnFirstTopup } from "./billing";
+import { type Box, type User, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, unreportedReclaims, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision, sendEmail } from "./external";
-import { DEFAULT_PLAN, PLANS, planPrice } from "./pricing";
-import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone, requestLocation } from "./regions";
-import { PLAN_ZONES } from "./zones.generated";
+import { DEFAULT_PLAN, PLANS, capacityKey, planPrice } from "./pricing";
+import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, planZones, regionOfZone, requestLocation } from "./regions";
 import { grantCredits, topupCheckoutUrl } from "./smartloop";
 import { type CheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
 import { HttpError, boxId, hmacSha256Hex, isZone, json, normalizeUserCode, nowSec, randomToken, readJson, sha256Hex, timingSafeEqual, usd, userCode } from "./util";
@@ -643,7 +642,7 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
     regions,
     // Zones offering the plan in those regions (zones.generated.ts), so the
     // provisioner needn't look them up; empty means look them up.
-    zones: box.zone ? [] : regions.flatMap((r) => PLAN_ZONES[box.plan]?.[r] ?? []),
+    zones: box.zone ? [] : regions.flatMap((r) => planZones(box.plan, r)),
     zone: box.zone,
     machine_type: plan.machineType,
     gpu_type: plan.gpuType,
@@ -652,8 +651,9 @@ route("GET", "/internal/boxes/:id", async (req, env, p) => {
     ssh_user: SSH_USER,
     ssh_public_key: box.ssh_public_key,
     plan: box.plan,
-    // Zones that just ran out of this machine type: try them last.
-    avoid_zones: box.zone ? [] : await recentStockouts(env, plan.machineType),
+    // Zones that just ran out of this machine type (Spot or on-demand, as the
+    // plan is): try them last.
+    avoid_zones: box.zone ? [] : await recentStockouts(env, capacityKey(plan)),
     // For the idle watcher on the box (provisioner/terraform/scripts): the
     // token that lets it stop this box, and after how many idle minutes.
     idle_token: await idleToken(env, box.id),
@@ -713,24 +713,49 @@ route("POST", "/boxes/:id/preempted", async (req, env, p) => {
   const got = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
   if (!box || !timingSafeEqual(got, await idleToken(env, p.id))) throw new HttpError(401, "unauthorized");
   if (!PLANS[box.plan]?.spot || box.status !== "running") return json({ stopped: false, status: box.status });
-  const now = nowSec();
+  await markReclaimed(env, box, nowSec());
+  return json({ stopped: true });
+});
+
+// Google reclaimed a running Spot box: it's stopped with its disk kept.
+// Record that (billing only the disk from now on) and tell the owner.
+async function markReclaimed(env: Env, box: Box, now: number): Promise<void> {
   await updateBox(env, box, { status: "stopped", stopped_at: now, ip: null }, now);
   const owner = await env.DB.prepare("SELECT email FROM users WHERE id = ?1").bind(box.user_id).first<{ email: string }>();
-  if (owner) {
-    try {
-      await sendEmail(
-        env,
-        owner.email,
-        `gpushed: Google reclaimed your ${box.plan.toUpperCase()} Spot box`,
-        `Your box ${box.id} runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
-          `Its disk and files are kept (billed at the stopped rate); anything that was running was ended.\n\n` +
-          `Resume it with: gpushed start (if there's no ${box.plan.toUpperCase()} free right now, try again in a few minutes)\n`,
-      );
-    } catch (e) {
-      console.error(`preempted email for ${box.id} failed`, e);
-    }
+  if (!owner) return;
+  const gpu = box.plan.replace(/-spot$/, "").toUpperCase();
+  try {
+    await sendEmail(
+      env,
+      owner.email,
+      `gpushed: Google reclaimed your ${gpu} Spot box`,
+      `Your box ${box.id} runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
+        `Its disk and files are kept (billed at the stopped rate); anything that was running was ended.\n\n` +
+        `Resume it with: gpushed start (if there's no ${gpu} free right now, try again in a few minutes)\n` +
+        `For work that mustn't be interrupted, use an on-demand plan instead (gpushed plans lists them).\n`,
+    );
+  } catch (e) {
+    console.error(`reclaimed email for ${box.id} failed`, e);
   }
-  return json({ stopped: true });
+}
+
+// The provisioner's periodic check (provisioner/worker.sh, "reconcile"): the
+// actual status of every box VM, from GCP. A Spot box whose VM Google stopped
+// without its shutdown hook reaching us would otherwise stay "running" and
+// billed at the GPU rate. Only GCP's word counts here, never the box's own.
+route("POST", "/internal/reconcile", async (req, env) => {
+  requireProvisioner(req, env);
+  const r = await readJson<{ listed_at?: number; instances?: { box_id?: string; status?: string }[] }>(req);
+  const listedAt = Number(r.listed_at);
+  if (!Number.isFinite(listedAt) || !Array.isArray(r.instances)) throw new HttpError(400, "bad report");
+  const { results: running } = await env.DB.prepare("SELECT * FROM boxes WHERE status = 'running'").all<Box>();
+  const now = nowSec();
+  const reclaimed = unreportedReclaims(running, r.instances, listedAt);
+  for (const box of reclaimed) {
+    console.warn(`box ${box.id} is running here but GCP has its VM stopped: reclaimed without a report`);
+    await markReclaimed(env, await meterBox(env, box, now), now);
+  }
+  return json({ reclaimed: reclaimed.map((b) => b.id) });
 });
 
 async function recentStockouts(env: Env, machineType: string): Promise<string[]> {
@@ -756,7 +781,7 @@ route("POST", "/internal/boxes/:id/progress", async (req, env, p) => {
     stmts.push(
       env.DB.prepare(
         "INSERT INTO zone_stockouts (zone, machine_type, at) VALUES (?1, ?2, ?3) ON CONFLICT (zone, machine_type) DO UPDATE SET at = ?3",
-      ).bind(r.stockout_zone, PLANS[box.plan].machineType, nowSec()),
+      ).bind(r.stockout_zone, capacityKey(PLANS[box.plan]), nowSec()),
     );
   }
   if (stmts.length) await env.DB.batch(stmts);
@@ -827,7 +852,7 @@ route("POST", "/internal/boxes/:id/report", async (req, env, p) => {
   const done = [env.DB.prepare("UPDATE boxes SET progress = NULL WHERE id = ?1").bind(box.id)];
   if (r.ok && isZone(r.zone)) {
     done.push(
-      env.DB.prepare("DELETE FROM zone_stockouts WHERE zone = ?1 AND machine_type = ?2").bind(r.zone, PLANS[box.plan].machineType),
+      env.DB.prepare("DELETE FROM zone_stockouts WHERE zone = ?1 AND machine_type = ?2").bind(r.zone, capacityKey(PLANS[box.plan])),
     );
   }
   await env.DB.batch(done);

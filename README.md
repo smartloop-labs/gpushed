@@ -45,17 +45,27 @@ gpushed plans
 
 | Plan | GPU | Machine | Price / hour (US) |
 |---|---|---|---|
+| `t4-spot` | 1x Tesla T4 16 GB, Spot | n1-standard-8 | $0.50 |
+| `l4-spot` (default) | 1x L4 24 GB, Spot | g2-standard-4 | $0.54 |
+| `a100-spot` | 1x A100 40 GB, Spot | a2-highgpu-1g | $2.53 |
+| `h100` (Spot, Taiwan) | 1x H100 80 GB, Spot | a3-highgpu-1g | $9.19 |
 | `t4` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
-| `l4` (default) | 1x L4 24 GB | g2-standard-4 | $0.88 |
+| `l4` | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
-| `h100` (Spot, Taiwan) | 1x H100 80 GB | a3-highgpu-1g | $9.19 |
 
-`h100` runs as a GCP **Spot VM**: GCP sells the single-H100 machine only that
-way. It's cheaper, but Google may reclaim it at any time. The box is then
-stopped with its disk kept (whatever was running ends), you get an email, and
-`gpushed start` resumes it once an H100 is free. Save checkpoints often.
+**Spot by default.** Plans ending in `-spot` (and `h100`, which GCP sells
+only as Spot) run as GCP **Spot VMs**: 40-45% cheaper, but Google may reclaim
+one at any time, with 30 seconds' notice. The box is then stopped with its
+disk kept (whatever was running ends), you get an email, and `gpushed start`
+(or `gpushed ssh`) resumes it once a GPU is free in its zone, which can take a
+while when GPUs are scarce. Save your work and checkpoints often. For work that
+mustn't be interrupted, use the on-demand plan of the same GPU: `gpushed up l4`.
 
-Prices are GCP's on-demand cost (Spot for `h100`) of the machine, its 100 GB
+If a reclaimed box can't tell gpushed in time, the provisioner's check of all
+box VMs (every 15 minutes while Spot boxes run) finds it, and from then on
+only its disk is billed.
+
+Prices are GCP's cost (on-demand or Spot, as the plan is) of the machine, its 100 GB
 SSD and IP, plus 20%. A box is billed per second from when it's created until it's deleted. A
 stopped box costs only its disk (about $0.03/hour).
 

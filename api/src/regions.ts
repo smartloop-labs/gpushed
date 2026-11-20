@@ -9,7 +9,7 @@
 // a subnet (infra/bootstrap), and entries in the generated tables.
 
 import { PLAN_CAPACITY } from "./capacity.generated";
-import { REGION_PRICES } from "./regions.generated";
+import { PLANS, gcpHourlyUsd } from "./pricing";
 import { PLAN_ZONES } from "./zones.generated";
 
 export interface Region {
@@ -45,7 +45,7 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
 export function enabledRegions(enabled: string | undefined, planId?: string): Region[] {
   const allow = (enabled ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   return REGIONS.filter(
-    (r) => (allow.length === 0 || allow.includes(r.id)) && (!planId || REGION_PRICES[r.id]?.plans[planId] != null),
+    (r) => (allow.length === 0 || allow.includes(r.id)) && (!planId || gcpHourlyUsd(planId, r.id) != null),
   );
 }
 
@@ -66,9 +66,14 @@ export function capacity(planId: string, regionId: string): number {
 // Enabled regions where a new box of the plan can go: priced, with a zone
 // offering its machine, and with GPU quota for it.
 export function offeredRegions(enabled: string | undefined, planId: string): Region[] {
-  return enabledRegions(enabled, planId).filter(
-    (r) => (PLAN_ZONES[planId]?.[r.id] ?? []).length > 0 && capacity(planId, r.id) > 0,
-  );
+  return enabledRegions(enabled, planId).filter((r) => planZones(planId, r.id).length > 0 && capacity(planId, r.id) > 0);
+}
+
+// Zones in the region offering the plan's machine (a Spot plan shares its
+// GPU's zones).
+export function planZones(planId: string, regionId: string): string[] {
+  const gpu = PLANS[planId]?.gpu ?? planId;
+  return PLAN_ZONES[gpu]?.[regionId] ?? [];
 }
 
 // The order to try regions for a new box of the plan: those with GPUs to
