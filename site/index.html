@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gpushed: NVIDIA GPUs for your Mac (H100, A100, L4, T4 with CUDA)</title>
-<meta name="description" content="Run CUDA from your Mac. One command gets you a dedicated NVIDIA H100, A100, L4 or Tesla T4 for LLM fine-tuning, inference, Stable Diffusion and CUDA development. Billed per second from $0.88/hour, with no cloud account to set up.">
+<meta name="description" content="Run CUDA from your Mac. One command gets you a dedicated NVIDIA H100, A100, L4 or Tesla T4 for LLM fine-tuning, inference, Stable Diffusion and CUDA development. Billed per second from $0.50/hour, with no cloud account to set up.">
 <link rel="canonical" href="https://gpushed.dev/">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#0d0f0c">
@@ -47,9 +47,12 @@
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "downloadUrl": "https://gpushed.dev/install.sh",
       "offers": [
-        { "@type": "Offer", "name": "NVIDIA L4 24 GB", "price": "0.88", "priceCurrency": "USD", "description": "Per hour, billed per second" },
-        { "@type": "Offer", "name": "NVIDIA Tesla T4 16 GB", "price": "0.91", "priceCurrency": "USD", "description": "Per hour, billed per second" },
-        { "@type": "Offer", "name": "NVIDIA A100 40 GB", "price": "4.44", "priceCurrency": "USD", "description": "Per hour, billed per second" },
+        { "@type": "Offer", "name": "NVIDIA L4 24 GB (Spot)", "price": "0.54", "priceCurrency": "USD", "description": "Per hour, billed per second; Spot VM" },
+        { "@type": "Offer", "name": "NVIDIA Tesla T4 16 GB (Spot)", "price": "0.50", "priceCurrency": "USD", "description": "Per hour, billed per second; Spot VM" },
+        { "@type": "Offer", "name": "NVIDIA A100 40 GB (Spot)", "price": "2.53", "priceCurrency": "USD", "description": "Per hour, billed per second; Spot VM" },
+        { "@type": "Offer", "name": "NVIDIA L4 24 GB", "price": "0.88", "priceCurrency": "USD", "description": "Per hour, billed per second; on-demand" },
+        { "@type": "Offer", "name": "NVIDIA Tesla T4 16 GB", "price": "0.91", "priceCurrency": "USD", "description": "Per hour, billed per second; on-demand" },
+        { "@type": "Offer", "name": "NVIDIA A100 40 GB", "price": "4.44", "priceCurrency": "USD", "description": "Per hour, billed per second; on-demand" },
         { "@type": "Offer", "name": "NVIDIA H100 80 GB", "price": "9.19", "priceCurrency": "USD", "description": "Per hour, billed per second; Spot VM in Taiwan (asia-east1)" }
       ]
     },
@@ -57,10 +60,11 @@
       "@type": "FAQPage",
       "mainEntity": [
         { "@type": "Question", "name": "Can I run CUDA on a Mac?", "acceptedAnswer": { "@type": "Answer", "text": "Not locally: Apple silicon has no NVIDIA GPU, and CUDA needs one. gpushed gives your Mac a dedicated NVIDIA GPU in the cloud with CUDA 12.6 preinstalled, one command away, so you can run PyTorch, vLLM, Triton or your own CUDA kernels from your Mac's terminal." } },
-        { "@type": "Question", "name": "Which GPU should I pick for fine-tuning an LLM?", "acceptedAnswer": { "@type": "Answer", "text": "For LoRA or QLoRA on 7B-8B models such as Llama, Mistral or Qwen, the L4 (24 GB) is the best value at $0.88/hour. Pick the A100 (40 GB) for 13B+ models, longer contexts, bigger batches or full fine-tuning of smaller models." } },
+        { "@type": "Question", "name": "Which GPU should I pick for fine-tuning an LLM?", "acceptedAnswer": { "@type": "Answer", "text": "For LoRA or QLoRA on 7B-8B models such as Llama, Mistral or Qwen, the L4 (24 GB) is the best value at $0.54/hour on Spot ($0.88 on-demand). Pick the A100 (40 GB) for 13B+ models, longer contexts, bigger batches or full fine-tuning of smaller models." } },
         { "@type": "Question", "name": "Can I use Jupyter or VS Code with the GPU?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Connect with plain SSH using the key gpushed keeps in ~/.gpushed/state, and forward a port for Jupyter, or point VS Code Remote-SSH at the box." } },
         { "@type": "Question", "name": "How is gpushed billed?", "acceptedAnswer": { "@type": "Answer", "text": "Per second, from a prepaid balance (top up from $10 with Stripe), from the moment the box exists until it is deleted. A stopped box costs only its disk, about $0.03/hour. If your balance runs out, the box is stopped, so you are never billed more than you put in." } },
         { "@type": "Question", "name": "What's installed on the GPU box?", "acceptedAnswer": { "@type": "Answer", "text": "Ubuntu 22.04 with the NVIDIA driver and CUDA Toolkit 12.6, plus Python 3.11 (pip and uv), Node.js 24 LTS, Rust, git and build tools, with full root access." } },
+        { "@type": "Question", "name": "What is a Spot box?", "acceptedAnswer": { "@type": "Answer", "text": "Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time with 30 seconds' notice. The box is then stopped with its disk and files kept, you get an email, and gpushed start resumes it. For work that mustn't be interrupted, pick an on-demand plan, e.g. gpushed up l4." } },
         { "@type": "Question", "name": "Where does gpushed run?", "acceptedAnswer": { "@type": "Answer", "text": "On Google Cloud, in the region nearest you: Iowa, South Carolina or Oregon in the US, the Netherlands, or Singapore. If a region is out of GPUs, gpushed tries the next nearest one automatically." } }
       ]
     }
@@ -332,6 +336,8 @@
   .plan .price { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; margin-top: auto; }
   .plan .price small { font-size: 15px; font-weight: 500; color: var(--ink-3); letter-spacing: 0; }
   .plan .id { padding-top: 12px; font: 13px var(--mono); color: var(--ink-2); }
+  .plan .alt { padding-top: 6px; font-size: 13px; color: var(--ink-3); }
+  .plan .alt code { font-size: 12px; }
   .billing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 28px; }
   .billing div { border-top: 2px solid var(--line); padding-top: 14px; font-size: 15px; color: var(--ink-2); }
   .billing strong { color: var(--ink); display: block; font-size: 16px; margin-bottom: 2px; }
@@ -499,7 +505,7 @@
     <div class="term" role="img" aria-label="Terminal: gpushed up creates an L4 box with CUDA ready; nvidia-smi shows the GPU">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="t-cmd">gpushed up</span>
-<span class="t-dim">🚀 Creating box b7k2… (l4, $0.88/h)</span>
+<span class="t-dim">🚀 Creating box b7k2… (l4-spot, $0.54/h)</span>
 <span class="t-dim">   … pending</span>
 <span class="t-dim">   … running</span>
 <span class="t-g">✅ Running</span>
@@ -518,7 +524,7 @@ name, memory.total [MiB]
   <div class="wrap">
     <div class="stats" role="list">
       <div class="stat" role="listitem"><b>Minutes</b><span>from <code>gpushed&nbsp;up</code> to SSH</span></div>
-      <div class="stat" role="listitem"><b>$0.88<small>/h</small></b><span>for a 24 GB L4, per second</span></div>
+      <div class="stat" role="listitem"><b>$0.54<small>/h</small></b><span>for a 24 GB L4 on Spot, per second</span></div>
       <div class="stat" role="listitem"><b>16–80<small> GB</small></b><span>dedicated GPU memory</span></div>
       <div class="stat" role="listitem"><b>6</b><span>regions across US, Europe, Asia</span></div>
     </div>
@@ -635,7 +641,7 @@ name, memory.total [MiB]
       <table class="picker">
         <thead><tr><th scope="col">Workload</th><th scope="col">Plan</th><th scope="col">Why</th></tr></thead>
         <tbody>
-          <tr><td>Learning CUDA, notebooks, small models</td><td><code>t4</code> / <code>l4</code></td><td>16–24 GB is plenty, from $0.88/hour.</td></tr>
+          <tr><td>Learning CUDA, notebooks, small models</td><td><code>t4</code> / <code>l4</code></td><td>16–24 GB is plenty, from $0.50/hour on Spot.</td></tr>
           <tr><td>QLoRA / LoRA on 7B–8B LLMs</td><td><code>l4</code></td><td>24 GB fits a 4-bit 8B model with room for batches.</td></tr>
           <tr><td>Serving a 7B–8B model with vLLM</td><td><code>l4</code></td><td>fp16 weights fit, with headroom for the KV cache.</td></tr>
           <tr><td>Stable Diffusion, SDXL, ComfyUI</td><td><code>t4</code> / <code>l4</code></td><td>Both run SDXL in fp16; the L4 is noticeably faster.</td></tr>
@@ -691,34 +697,38 @@ name, memory.total [MiB]
       <div class="kicker">Pricing</div>
       <h2>Simple hourly GPU prices, charged by the second.</h2>
       <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Paid from your smartloop credits: your plan’s monthly credits first, then any you add (from $10). US prices shown; Europe and Asia cost a little more. The H100 runs in Taiwan (asia-east1).</p>
+      <p class="sub">Boxes are <strong>Spot</strong> by default: much cheaper, but Google may take the GPU back at any time. Your box is then stopped with its disk kept, and <code>gpushed start</code> resumes it. For work that mustn't be interrupted, pick on-demand.</p>
       <div class="plans">
         <div class="plan hot">
           <div class="tag">Default · best value</div>
           <h3>L4</h3>
           <div class="spec">24 GB · 4 vCPU · 16 GB RAM</div>
           <p class="good">7B–8B LoRA, vLLM serving, SDXL.</p>
-          <div class="price">$0.88<small> / hour</small></div>
-          <div class="id">gpushed up l4</div>
+          <div class="price">$0.54<small> / hour, Spot</small></div>
+          <div class="id">gpushed up</div>
+          <div class="alt">On-demand $0.88 / hour · <code>gpushed up l4</code></div>
         </div>
         <div class="plan">
           <div class="tag">Large models</div>
           <h3>A100 40 GB</h3>
           <div class="spec">40 GB · 12 vCPU · 85 GB RAM</div>
           <p class="good">13B+ fine-tuning, long contexts.</p>
-          <div class="price">$4.44<small> / hour</small></div>
-          <div class="id">gpushed up a100</div>
+          <div class="price">$2.53<small> / hour, Spot</small></div>
+          <div class="id">gpushed up a100-spot</div>
+          <div class="alt">On-demand $4.44 / hour · <code>gpushed up a100</code></div>
         </div>
         <div class="plan">
           <div class="tag">Frontier · Spot · Taiwan</div>
           <h3>H100 80 GB</h3>
           <div class="spec">80 GB · 26 vCPU · 234 GB RAM</div>
-          <p class="good">30B–70B models, full fine-tuning. Spot: Google may reclaim it, so checkpoint often.</p>
-          <div class="price">$9.19<small> / hour</small></div>
+          <p class="good">30B–70B models, full fine-tuning. Checkpoint often.</p>
+          <div class="price">$9.19<small> / hour, Spot</small></div>
           <div class="id">gpushed up h100</div>
+          <div class="alt">Spot only: Google sells this machine no other way</div>
         </div>
       </div>
       <div class="billing">
-        <div><strong>Add credits from $10</strong>About 2¼ hours on an A100, or 11 on an L4. They never expire.</div>
+        <div><strong>Add credits from $10</strong>About 4 hours on a Spot A100, or 18 on a Spot L4. They never expire.</div>
         <div><strong>Stopped boxes</strong>About $0.03/hour for the disk while compute is paused.</div>
         <div><strong>Running low</strong>Email at $2. Box paused before $0, deleted after 24 h unfunded.</div>
       </div>
@@ -738,6 +748,10 @@ name, memory.total [MiB]
           <details>
             <summary>Which GPU should I pick for fine-tuning?</summary>
             <p>For LoRA or QLoRA on 7B–8B models, the L4 (24 GB) is the best value. Pick the A100 (40 GB) for 13B+ models, longer contexts, bigger batches, or full fine-tuning of smaller models. See <a href="#choose">choosing a GPU</a>.</p>
+          </details>
+          <details>
+            <summary>What's a Spot box?</summary>
+            <p>Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time, with 30 seconds' notice. Whatever is running stops, but the box keeps its disk and files: you get an email, and <code>gpushed start</code> (or <code>gpushed ssh</code>) resumes it once a GPU is free again. Save checkpoints often. For work that mustn't be interrupted, pick an on-demand plan: <code>gpushed up l4</code>, <code>gpushed up a100</code>. <code>gpushed plans</code> lists both.</p>
           </details>
           <details>
             <summary>Can I use Jupyter or VS Code?</summary>
