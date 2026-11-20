@@ -41,8 +41,8 @@ IDLE_STOP_MINUTES = "5"
 # job, CLOUD_RUN_JOB; needs the GCP_DISPATCH_KEY secret) or "github" (the
 # provision.yml workflow; needs GITHUB_TOKEN). Switch to cloudrun once
 # Bootstrap GCP has created the job and a release has pushed its image.
-PROVISIONER = "github"
-CLOUD_RUN_JOB = "" # projects/<project>/locations/us-central1/jobs/gpushed-provisioner (Bootstrap GCP output)
+PROVISIONER = "cloudrun"
+CLOUD_RUN_JOB = "projects/smartloop-gcp-us-east/locations/us-central1/jobs/gpushed-provisioner"
 GITHUB_REPO = "smartloop-labs/gpushed"
 GITHUB_WORKFLOW = "provision.yml"
 GITHUB_REF = "main"
