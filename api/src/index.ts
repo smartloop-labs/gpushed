@@ -513,7 +513,15 @@ route("POST", "/box", async (req, env) => {
   const key = String(body.ssh_public_key ?? "").trim().split(/\s+/).slice(0, 2).join(" ");
   if (!SSH_KEY_RE.test(key) || key.length > 4096) throw new HttpError(400, "invalid SSH public key");
 
-  const existing = await activeBox(env, user.id);
+  let existing = await activeBox(env, user.id);
+  // A box whose creation failed (a stockout, say) never got a VM and costs
+  // nothing: clear it out of the way rather than make the user run down.
+  if (existing?.status === "failed" && existing.metered_until == null && !existing.zone) {
+    await updateBox(env, existing, { status: "destroyed" }, nowSec());
+    // Sweep up anything half-created; the provisioner usually already has.
+    await dispatchProvision(env, "down", existing.id).catch((e) => console.error(`sweeping ${existing!.id} failed`, e));
+    existing = null;
+  }
   if (existing) throw new HttpError(409, `you already have a box (${existing.id}, ${existing.status}); run gpushed down first`);
 
   // Regions to try, in order: the one asked for, or those with GPUs to spare
