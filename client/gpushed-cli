@@ -357,7 +357,7 @@ Box
   up [plan] [--region R]   Create your box (default plan: l4) in the nearest
                            region with free GPUs, and set it up
   status                   Show your box
-  ssh [cmd...]             SSH into your box (or run a command on it)
+  ssh [cmd...]             SSH into your box, starting it (or creating one) first
   stop                     Stop the box; only its disk is billed while stopped
   start                    Start a stopped box
   down                     Delete the box and its disk
@@ -368,6 +368,38 @@ EOF
 
 cmd="${1:-help}"
 shift || true
+
+# Create a box (gpushed up [plan] [--region REGION]) and wait until it's ready.
+create_box() {
+  local plan="" region="" body res where
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --region) region="${2:-}"; [ -n "$region" ] || die "Usage: gpushed up [plan] [--region REGION]"; shift 2 ;;
+      --region=*) region="${1#--region=}"; shift ;;
+      -*) die "Usage: gpushed up [plan] [--region REGION]" ;;
+      *) plan="$1"; shift ;;
+    esac
+  done
+  ensure_key
+  body=$(jq -nc --arg p "$plan" --arg r "$region" --arg k "$(cat "$KEY.pub")" \
+    '{ssh_public_key:$k} + (if $p != "" then {plan:$p} else {} end) + (if $r != "" then {region:$r} else {} end)')
+  api POST /box "$body"; res=$API_BODY
+  if [ -n "$region" ]; then where="in $(jq -r .box.region_name <<<"$res")"; else where="nearest region first: $(jq -r .box.region_name <<<"$res")"; fi
+  say "🚀 Creating box $(jq -r .box.id <<<"$res") ($(jq -r .box.plan <<<"$res"), $where; billed per second while it exists)"
+  [ "$(jq -r '.box.spot // false' <<<"$res")" = true ] &&
+    say "   Spot VM: Google may reclaim it at any time. It's then stopped with its disk kept (gpushed start resumes it); save your work often."
+  wait_for running
+  require_running_box
+  box_json
+  say "✅ Running in $(jq -r '.box.region_name + " (" + .box.zone + ")"' <<<"$API_BODY") at $BOX_IP, \$$(jq -r .box.hourly_usd <<<"$API_BODY")/h"
+  wait_for_ssh
+  follow_setup
+  say ""
+  say "🎉 Your GPU box is ready, with CUDA, Python 3.11 (python, pip, uv), Node.js and Rust installed."
+  say "   gpushed ssh      # connect, then try: nvidia-smi"
+  say "   gpushed stop     # pause it (disk kept, ~\$0.03/h)"
+  say "   gpushed down     # delete it"
+}
 
 case "$cmd" in
   login)
@@ -447,43 +479,20 @@ case "$cmd" in
         ((.status // "available") as $s
           | if $s == "unavailable" then "coming soon (no GPU quota yet)"
             elif $s == "elsewhere" then "not here; in \(.regions | join(", "))"
-            else "available" end)
+            else "available" end) + (if .spot then " · Spot*" else "" end)
       ] | @tsv' <<<"$API_BODY" |
       awk -F'\t' 'BEGIN { printf "  %-8s %-18s %9s %9s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "STATUS" }
         { printf "  %-8s %-18s %9s %9s  %s\n", $1, $2, $3, $4, $5 }'
     jq -r '"\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
+    jq -e 'any(.plans[]; .spot)' <<<"$API_BODY" >/dev/null &&
+      say "* Spot: a cheaper VM Google may reclaim at any time. It's then stopped with its disk kept; gpushed start resumes it."
     say "Prices include disk and IP, and differ a little by region. A stopped box costs only its disk."
     say "To create or start a box you need an hour of its price in your balance."
     say "Your box goes to the nearest region with free GPUs; pick one with: gpushed up [plan] --region REGION"
     ;;
 
   up)
-    plan="" region=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --region) region="${2:-}"; [ -n "$region" ] || die "Usage: gpushed up [plan] [--region REGION]"; shift 2 ;;
-        --region=*) region="${1#--region=}"; shift ;;
-        -*) die "Usage: gpushed up [plan] [--region REGION]" ;;
-        *) plan="$1"; shift ;;
-      esac
-    done
-    ensure_key
-    body=$(jq -nc --arg p "$plan" --arg r "$region" --arg k "$(cat "$KEY.pub")" \
-      '{ssh_public_key:$k} + (if $p != "" then {plan:$p} else {} end) + (if $r != "" then {region:$r} else {} end)')
-    api POST /box "$body"; res=$API_BODY
-    if [ -n "$region" ]; then where="in $(jq -r .box.region_name <<<"$res")"; else where="nearest region first: $(jq -r .box.region_name <<<"$res")"; fi
-    say "🚀 Creating box $(jq -r .box.id <<<"$res") ($(jq -r .box.plan <<<"$res"), $where; billed per second while it exists)"
-    wait_for running
-    require_running_box
-    box_json
-    say "✅ Running in $(jq -r '.box.region_name + " (" + .box.zone + ")"' <<<"$API_BODY") at $BOX_IP, \$$(jq -r .box.hourly_usd <<<"$API_BODY")/h"
-    wait_for_ssh
-    follow_setup
-    say ""
-    say "🎉 Your GPU box is ready, with CUDA, Python 3.11 (python, pip, uv), Node.js and Rust installed."
-    say "   gpushed ssh      # connect, then try: nvidia-smi"
-    say "   gpushed stop     # pause it (disk kept, ~\$0.03/h)"
-    say "   gpushed down     # delete it"
+    create_box "$@"
     ;;
 
   status)
@@ -502,7 +511,34 @@ case "$cmd" in
     ;;
 
   ssh)
+    # Whatever state the box is in, get it running first: start a stopped
+    # one, wait out a start or stop in progress, create one if there's none.
+    box_json; woke=1
+    if [ "$API_STATUS" = 404 ]; then
+      say "No box yet; creating one with the default plan first."
+      create_box
+    else
+      status=$(jq -r .box.status <<<"$API_BODY")
+      if [ "$status" = stopping ]; then
+        say "⏸️  Your box is stopping; it will start again once it has stopped..."
+        wait_for stopped
+        status=stopped
+      fi
+      case "$status" in
+        stopped)
+          api POST /box/start
+          say "▶️  Your box is stopped; starting it..."
+          wait_for running
+          ;;
+        starting | pending)
+          say "⏳ Your box is starting; waiting for it..."
+          wait_for running
+          ;;
+        *) woke=0 ;;
+      esac
+    fi
     require_running_box
+    [ $woke = 0 ] || wait_for_ssh # just started: sshd may not be up yet
     [ -f "$KEY" ] || die "This Mac doesn't have the key for your box (~/.gpushed/state/box_ssh_key)."
     exec ssh "${SSH_OPTS[@]}" -t "$BOX_USER@$BOX_IP" "$@"
     ;;
