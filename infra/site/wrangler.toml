@@ -1,14 +1,11 @@
 # The website (site/ plus install.sh) at https://gpushed.dev, a static-assets
-# Worker. .github/workflows/release.yml builds _site/ and deploys it. It's also
-# served at gpushed.smartloop.ai (once GitHub Pages), so links and install
-# commands already out there keep working.
+# Worker. .github/workflows/release.yml builds _site/ and deploys it.
 name = "gpushed-site"
 compatibility_date = "2025-09-01"
 workers_dev = false
 routes = [
   { pattern = "gpushed.dev", custom_domain = true },
   { pattern = "www.gpushed.dev", custom_domain = true },
-  { pattern = "gpushed.smartloop.ai", custom_domain = true },
 ]
 
 [assets]

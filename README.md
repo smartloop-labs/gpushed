@@ -265,8 +265,8 @@ price while running and the disk price while stopped.
    | secret | `GH_ADMIN_TOKEN` | optional, for step 4: fine-grained PAT that can write this repo's Actions variables |
 
    Boxes are provisioned on Cloud Run, so their logs are in Cloud Logging.
-   The website is served by a Cloudflare Worker (`infra/site`) at gpushed.dev
-   and gpushed.smartloop.ai; nothing users need comes from GitHub.
+   The website is served by a Cloudflare Worker (`infra/site`) at gpushed.dev;
+   nothing users need comes from GitHub.
 
 4. **GCP** (in our project; needs GPU quota in each region): run
    **Actions > Bootstrap GCP** with `plan`, check it, then run it with `apply`.

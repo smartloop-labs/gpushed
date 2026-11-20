@@ -13,8 +13,7 @@
 #
 # On main (a push touching site/ or install.sh, or a manual run): publishes the
 # website (site/) and install.sh to https://gpushed.dev (a static-assets
-# Worker, infra/site/wrangler.toml, also serving https://gpushed.smartloop.ai
-# for links and install commands already out there); the install command is
+# Worker, infra/site/wrangler.toml); the install command is
 # curl -fsSL gpushed.dev/install.sh | bash. The site deploys only from main:
 # install.sh looks up the latest release itself, so tags don't redeploy it.
 #
