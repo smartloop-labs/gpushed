@@ -188,7 +188,7 @@ wait_for() {
       fi
       step=$now_step
       if [ "$status" != "$last" ]; then
-        if [ $live = 1 ] && [ -n "$last" ]; then
+        if [ $live = 1 ] && [ -n "$last" ] && [ "$status" != failed ]; then
           printf '\r\033[K   ✓ %s in %s\n' "$(describe_done "$last")" "$(elapsed $((SECONDS - since)))"
         fi
         [ $live = 1 ] || say "   … $(describe_status "$status")"
@@ -386,8 +386,6 @@ create_box() {
   api POST /box "$body"; res=$API_BODY
   if [ -n "$region" ]; then where="in $(jq -r .box.region_name <<<"$res")"; else where="nearest region first: $(jq -r .box.region_name <<<"$res")"; fi
   say "🚀 Creating box $(jq -r .box.id <<<"$res") ($(jq -r .box.plan <<<"$res"), $where; billed per second while it exists)"
-  [ "$(jq -r '.box.spot // false' <<<"$res")" = true ] &&
-    say "   Spot VM: Google may reclaim it at any time. It's then stopped with its disk kept (gpushed start resumes it); save your work often."
   wait_for running
   require_running_box
   box_json
@@ -479,13 +477,11 @@ case "$cmd" in
         ((.status // "available") as $s
           | if $s == "unavailable" then "coming soon (no GPU quota yet)"
             elif $s == "elsewhere" then "not here; in \(.regions | join(", "))"
-            else "available" end) + (if .spot then " · Spot*" else "" end)
+            else "available" end)
       ] | @tsv' <<<"$API_BODY" |
       awk -F'\t' 'BEGIN { printf "  %-8s %-18s %9s %9s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "STATUS" }
         { printf "  %-8s %-18s %9s %9s  %s\n", $1, $2, $3, $4, $5 }'
     jq -r '"\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
-    jq -e 'any(.plans[]; .spot)' <<<"$API_BODY" >/dev/null &&
-      say "* Spot: a cheaper VM Google may reclaim at any time. It's then stopped with its disk kept; gpushed start resumes it."
     say "Prices include disk and IP, and differ a little by region. A stopped box costs only its disk."
     say "To create or start a box you need an hour of its price in your balance."
     say "Your box goes to the nearest region with free GPUs; pick one with: gpushed up [plan] --region REGION"
