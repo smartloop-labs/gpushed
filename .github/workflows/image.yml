@@ -3,7 +3,7 @@
 # minute or two instead of installing for 10-15. Runs when the box setup
 # changes on main, or by hand: Actions > Build image > Run workflow.
 #
-# Needs GCP_IMAGE_SERVICE_ACCOUNT in the `production` environment (set by the
+# Needs the repository variable GCP_IMAGE_SERVICE_ACCOUNT (set by the
 # Bootstrap GCP workflow). Boxes created before a new image keep their disk.
 name: Build image
 
@@ -26,7 +26,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    environment: production
     env:
       GCP_PROJECT: ${{ vars.GCP_PROJECT }}
       IMAGE_SA: ${{ vars.GCP_IMAGE_SERVICE_ACCOUNT }}

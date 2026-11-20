@@ -39,7 +39,8 @@ jobs:
   provision:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production # holds the secrets below; restrict it to main
+    # Secrets are repository secrets: only runs from main may use them.
+    if: github.ref == 'refs/heads/main'
     env:
       ACTION: ${{ inputs.action }}
       BOX_ID: ${{ inputs.box_id }}

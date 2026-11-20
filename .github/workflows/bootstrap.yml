@@ -9,7 +9,7 @@
 # Terraform state is kept in R2 at <R2_STATE_BUCKET>/bootstrap/terraform.tfstate,
 # so re-running it updates the same resources.
 #
-# Needs, in the `production` environment:
+# Needs these repository secrets and variables:
 #   secret   GCP_BOOTSTRAP_KEY   JSON key of a GCP service account that may
 #                                manage IAM, Compute and APIs in the project
 #                                (e.g. roles/owner). Only this workflow uses
@@ -19,9 +19,9 @@
 #                                for the Cloud Run job; re-run after changing one)
 #   variable R2_ENDPOINT, R2_STATE_BUCKET, GPUSHED_API
 #   secret   GH_ADMIN_TOKEN      optional: a GitHub token that can write this
-#                                repo's environment variables. With it, apply
+#                                repo's Actions variables. With it, apply
 #                                stores the outputs (GCP_PROJECT, ...) in the
-#                                `production` environment for provision.yml;
+#                                repository's variables for the workflows;
 #                                without it, copy them from the run summary.
 name: Bootstrap GCP
 
@@ -52,7 +52,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: production
     defaults:
       run:
         working-directory: infra/bootstrap
@@ -127,9 +126,9 @@ jobs:
           if [ -n "$GH_TOKEN" ]; then
             jq -r 'to_entries[] | "\(.key)\t\(.value.value)"' outputs.json \
               | while IFS=$'\t' read -r name value; do
-                  gh variable set "$name" --env production --repo "$REPO" --body "$value"
+                  gh variable set "$name" --repo "$REPO" --body "$value"
                 done
-            echo "Stored as variables in the \`production\` environment." >> "$GITHUB_STEP_SUMMARY"
+            echo "Stored as repository variables." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Add these as variables in the \`production\` environment (no GH_ADMIN_TOKEN set)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Add these as repository variables (no GH_ADMIN_TOKEN set)." >> "$GITHUB_STEP_SUMMARY"
           fi

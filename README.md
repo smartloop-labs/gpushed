@@ -245,7 +245,9 @@ price while running and the disk price while stopped.
    `node api/scripts/gcp-zones.mjs <project>` (rerun both when adding a region
    or plan).
 
-3. **GitHub**: create an environment named `production`, limited to `main`, with:
+3. **GitHub** (the repository is private): add these as repository Actions
+   secrets and variables (Settings > Secrets and variables > Actions). The
+   workflows that use them run only from `main` or a `v*` tag.
 
    | Kind | Name | Value |
    |---|---|---|
@@ -260,19 +262,17 @@ price while running and the disk price while stopped.
    | secret | `R2_RELEASE_ACCESS_KEY_ID`, `R2_RELEASE_SECRET_ACCESS_KEY` | release bucket token |
    | secret | `CLOUDFLARE_API_TOKEN` | Workers + D1 edit, for API deploys |
    | secret | `GCP_BOOTSTRAP_KEY` | for step 4 only; delete afterwards |
-   | secret | `GH_ADMIN_TOKEN` | optional, for step 4: fine-grained PAT that can write this repo's environment variables |
+   | secret | `GH_ADMIN_TOKEN` | optional, for step 4: fine-grained PAT that can write this repo's Actions variables |
 
-   Limit the environment to the `main` branch and `v*` tags (the release
-   workflow runs in it on tags).
-
-   Boxes are provisioned on Cloud Run, so their logs are in Cloud Logging,
-   not in this public repo's workflow logs.
+   Boxes are provisioned on Cloud Run, so their logs are in Cloud Logging.
+   The website is served by a Cloudflare Worker (`infra/site`) at gpushed.dev;
+   nothing users need comes from GitHub.
 
 4. **GCP** (in our project; needs GPU quota in each region): run
    **Actions > Bootstrap GCP** with `plan`, check it, then run it with `apply`.
    It runs [`infra/bootstrap`](infra/bootstrap) with Terraform state in
    `gpushed-state/bootstrap/terraform.tfstate`, and stores its outputs as
-   `production` variables (with `GH_ADMIN_TOKEN`; otherwise copy them from
+   repository variables (with `GH_ADMIN_TOKEN`; otherwise copy them from
    the run summary). It also creates the `gpushed-provisioner` Cloud Run job
    (in `us-central1`), its Artifact Registry repo, and Secret Manager copies
    of `PROVISIONER_SECRET` and the R2 state keys; re-run it after changing

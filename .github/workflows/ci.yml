@@ -48,7 +48,6 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: api
     runs-on: ubuntu-latest
-    environment: production
     defaults:
       run:
         working-directory: api
