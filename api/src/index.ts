@@ -1,7 +1,7 @@
 import { type Box, type User, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, unreportedReclaims, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision, sendEmail } from "./external";
-import { DEFAULT_PLAN, PLANS, capacityKey, planPrice } from "./pricing";
+import { DEFAULT_PLAN, PLANS, capacityKey, planPrice, resolvePlan } from "./pricing";
 import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, planZones, regionOfZone, requestLocation } from "./regions";
 import { grantCredits, topupCheckoutUrl } from "./smartloop";
 import { type CheckoutSession, topupCents, verifyStripeSignature } from "./stripe";
@@ -514,7 +514,7 @@ function balanceShortMessage(balanceMicros: number, planId: string, hourlyMicros
 route("POST", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const body = await readJson<{ plan?: string; ssh_public_key?: string; region?: string }>(req);
-  const plan = PLANS[body.plan ?? DEFAULT_PLAN];
+  const plan = resolvePlan(body.plan ?? DEFAULT_PLAN);
   if (!plan) throw new HttpError(400, `unknown plan; choose one of: ${Object.keys(PLANS).join(", ")}`);
   if (!plan.available) throw new HttpError(503, `${plan.id} isn't available yet; see gpushed plans`);
   // Drop the key's comment: it ends up in GCE metadata as "user:type key".
@@ -723,7 +723,7 @@ async function markReclaimed(env: Env, box: Box, now: number): Promise<void> {
   await updateBox(env, box, { status: "stopped", stopped_at: now, ip: null }, now);
   const owner = await env.DB.prepare("SELECT email FROM users WHERE id = ?1").bind(box.user_id).first<{ email: string }>();
   if (!owner) return;
-  const gpu = box.plan.replace(/-spot$/, "").toUpperCase();
+  const gpu = PLANS[box.plan]?.gpu.toUpperCase() ?? box.plan;
   try {
     await sendEmail(
       env,
@@ -732,7 +732,7 @@ async function markReclaimed(env: Env, box: Box, now: number): Promise<void> {
       `Your box ${box.id} runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
         `Its disk and files are kept (billed at the stopped rate); anything that was running was ended.\n\n` +
         `Resume it with: gpushed start (if there's no ${gpu} free right now, try again in a few minutes)\n` +
-        `For work that mustn't be interrupted, use an on-demand plan instead (gpushed plans lists them).\n`,
+        `For work that mustn't be interrupted, use an on-demand plan instead: gpushed up ${PLANS[box.plan]?.gpu ?? "l4"}-ondemand\n`,
     );
   } catch (e) {
     console.error(`reclaimed email for ${box.id} failed`, e);

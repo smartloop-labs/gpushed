@@ -26,11 +26,12 @@ export interface Plan {
   spot?: boolean;
 }
 
-// The machine each plan runs on. scripts/gcp-prices.mjs has the same plans
-// broken into cores, RAM and GPU for pricing; keep them in step.
-const ON_DEMAND: Plan[] = [
+// The machines on offer, by GPU. Each is a Spot plan under the GPU's own name
+// ("l4") and an on-demand plan "<gpu>-ondemand" ("l4-ondemand").
+// scripts/gcp-prices.mjs has the same GPUs broken into cores, RAM and GPU for
+// pricing; keep them in step.
+const MACHINES: Omit<Plan, "id" | "spot">[] = [
   {
-    id: "t4",
     gpu: "t4",
     label: "1x NVIDIA Tesla T4 16 GB, 8 vCPU, 30 GB RAM",
     machineType: "n1-standard-8",
@@ -39,7 +40,6 @@ const ON_DEMAND: Plan[] = [
     available: true,
   },
   {
-    id: "l4",
     gpu: "l4",
     label: "1x NVIDIA L4 24 GB, 4 vCPU, 16 GB RAM",
     machineType: "g2-standard-4",
@@ -48,7 +48,6 @@ const ON_DEMAND: Plan[] = [
     available: true,
   },
   {
-    id: "a100",
     gpu: "a100",
     label: "1x NVIDIA A100 40 GB, 12 vCPU, 85 GB RAM",
     machineType: "a2-highgpu-1g",
@@ -58,16 +57,14 @@ const ON_DEMAND: Plan[] = [
   },
 ];
 
-// Every on-demand plan also comes as "<id>-spot": the same machine as a Spot
-// VM, at GCP's Spot price.
-const SPOT: Plan[] = ON_DEMAND.map((p) => ({ ...p, id: `${p.id}-spot`, spot: true }));
+const SPOT: Plan[] = MACHINES.map((m) => ({ ...m, id: m.gpu, spot: true }));
+const ON_DEMAND: Plan[] = MACHINES.map((m) => ({ ...m, id: `${m.gpu}-ondemand` }));
 
 export const PLANS: Record<string, Plan> = Object.fromEntries(
   [
-    ...ON_DEMAND,
     ...SPOT,
     // GCP creates a3-highgpu-1g (and -2g, -4g) only as Spot or Flex-start, never
-    // on-demand, so H100 boxes are Spot (and there's no plain "h100-spot").
+    // on-demand, so there's no "h100-ondemand".
     // Offered in asia-east1 only, where the H100 family quota is granted
     // (capacity.generated.ts).
     {
@@ -80,14 +77,14 @@ export const PLANS: Record<string, Plan> = Object.fromEntries(
       available: true,
       spot: true,
     },
+    ...ON_DEMAND,
   ].map((p) => [p.id, p]),
 );
 
 // Not offered until GCP grants NVIDIA_A100_80GB_GPUS quota (it's 0 in our
-// project); add it to ON_DEMAND then (its prices are already generated):
+// project); add it to MACHINES then (its prices are already generated):
 //
 //   {
-//     id: "a100-80",
 //     gpu: "a100-80",
 //     label: "1x NVIDIA A100 80 GB, 12 vCPU, 170 GB RAM",
 //     machineType: "a2-ultragpu-1g",
@@ -96,9 +93,15 @@ export const PLANS: Record<string, Plan> = Object.fromEntries(
 //     available: true,
 //   },
 
-// Spot by default: much cheaper, and a reclaimed box keeps its disk. Plans
-// without "-spot" are on-demand, for work that mustn't be interrupted.
-export const DEFAULT_PLAN = "l4-spot";
+// Spot by default: much cheaper, and a reclaimed box keeps its disk. The
+// "-ondemand" plans are for work that mustn't be interrupted.
+export const DEFAULT_PLAN = "l4";
+
+// The plan a user asked for. "<gpu>-spot" (the Spot plans' names in v0.3.14)
+// still works and means "<gpu>".
+export function resolvePlan(id: string): Plan | undefined {
+  return PLANS[id] ?? (id.endsWith("-spot") ? PLANS[id.slice(0, -5)] : undefined);
+}
 
 // What zone stockouts are recorded under: Spot and on-demand capacity of a
 // machine type run out separately.

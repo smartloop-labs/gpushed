@@ -354,7 +354,7 @@ Account
 
 Box
   plans [--region R]       GPUs you can run and their hourly price
-  up [plan] [--region R]   Create your box (default plan: l4-spot) in the nearest
+  up [plan] [--region R]   Create your box (default plan: l4, Spot) in the nearest
                            region with free GPUs, and set it up
   status                   Show your box
   ssh [cmd...]             SSH into your box, starting it (or creating one) first
@@ -389,7 +389,7 @@ create_box() {
   if [ "$(jq -r '.box.spot // false' <<<"$res")" = true ]; then
     say "   Spot box: Google may stop it at any time (disk kept; gpushed start resumes it)."
     p=$(jq -r .box.plan <<<"$res")
-    [ "${p%-spot}" = "$p" ] || say "   For work that mustn't be interrupted: gpushed up ${p%-spot}"
+    [ "$p" = h100 ] || say "   For work that mustn't be interrupted: gpushed up $p-ondemand"
   fi
   wait_for running
   require_running_box
@@ -484,12 +484,12 @@ case "$cmd" in
             elif $s == "elsewhere" then "not here; in \(.regions | join(", "))"
             else "available" end)
       ] | @tsv' <<<"$API_BODY" |
-      awk -F'\t' 'BEGIN { printf "  %-10s %-24s %9s %9s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "STATUS" }
-        { printf "  %-10s %-24s %9s %9s  %s\n", $1, $2, $3, $4, $5 }'
+      awk -F'\t' 'BEGIN { printf "  %-14s %-24s %9s %9s  %s\n", "PLAN", "GPU", "PER HOUR", "STOPPED", "STATUS" }
+        { printf "  %-14s %-24s %9s %9s  %s\n", $1, $2, $3, $4, $5 }'
     jq -r '"\nRegions: \([.regions[] | .id] | join(", "))"' <<<"$API_BODY"
     say "Prices include disk and IP, and differ a little by region. A stopped box costs only its disk."
     say "Spot boxes are much cheaper, but Google may stop one at any time (its disk is kept; start it again"
-    say "with gpushed start). For work that mustn't be interrupted, pick a plan without -spot."
+    say "with gpushed start). For work that mustn't be interrupted, pick an -ondemand plan."
     say "To create or start a box you need an hour of its price in your balance."
     say "Your box goes to the nearest region with free GPUs; pick one with: gpushed up [plan] --region REGION"
     ;;

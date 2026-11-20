@@ -18,22 +18,14 @@ export const PLAN_CAPACITY: Record<string, Record<string, number>> = {
     "asia-east1": 16
   },
   "a100": {
-    "us-central1": 4,
-    "us-east1": 16,
-    "us-west1": 5,
-    "europe-west4": 16,
-    "asia-southeast1": 16,
-    "asia-east1": 16
+    "us-central1": 64,
+    "us-east1": 64,
+    "us-west1": 64,
+    "europe-west4": 64,
+    "asia-southeast1": 64,
+    "asia-east1": 64
   },
-  "a100-80": {
-    "us-central1": 0,
-    "us-east1": 0,
-    "us-west1": 0,
-    "europe-west4": 0,
-    "asia-southeast1": 0,
-    "asia-east1": 0
-  },
-  "t4-spot": {
+  "t4-ondemand": {
     "us-central1": 8,
     "us-east1": 8,
     "us-west1": 8,
@@ -41,7 +33,7 @@ export const PLAN_CAPACITY: Record<string, Record<string, number>> = {
     "asia-southeast1": 8,
     "asia-east1": 8
   },
-  "l4-spot": {
+  "l4-ondemand": {
     "us-central1": 16,
     "us-east1": 16,
     "us-west1": 16,
@@ -49,13 +41,21 @@ export const PLAN_CAPACITY: Record<string, Record<string, number>> = {
     "asia-southeast1": 16,
     "asia-east1": 16
   },
-  "a100-spot": {
-    "us-central1": 64,
-    "us-east1": 64,
-    "us-west1": 64,
-    "europe-west4": 64,
-    "asia-southeast1": 64,
-    "asia-east1": 64
+  "a100-ondemand": {
+    "us-central1": 4,
+    "us-east1": 16,
+    "us-west1": 5,
+    "europe-west4": 16,
+    "asia-southeast1": 16,
+    "asia-east1": 16
+  },
+  "a100-80-ondemand": {
+    "us-central1": 0,
+    "us-east1": 0,
+    "us-west1": 0,
+    "europe-west4": 0,
+    "asia-southeast1": 0,
+    "asia-east1": 0
   },
   "h100": {
     "us-central1": 0,

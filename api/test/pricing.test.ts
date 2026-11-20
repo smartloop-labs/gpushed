@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { meterRate } from "../src/billing";
-import { DEFAULT_PLAN, IP_HOURLY_USD, PLANS, capacityKey, chargeMicros, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
+import { DEFAULT_PLAN, IP_HOURLY_USD, PLANS, capacityKey, chargeMicros, resolvePlan, diskHourlyUsd, gcpHourlyUsd, planPrice, withPremium } from "../src/pricing";
 import { REGION_PRICES } from "../src/regions.generated";
 import { REGIONS, byAvailability, byDistance, enabledRegions, offeredRegions, regionOfZone } from "../src/regions";
 
@@ -19,9 +19,9 @@ describe("pricing", () => {
   });
 
   it("matches GCP's us-central1 list prices", () => {
-    expect(gcpHourlyUsd("t4", "us-central1")).toBeCloseTo(0.73, 3);
-    expect(gcpHourlyUsd("l4", "us-central1")).toBeCloseTo(0.7068, 3);
-    expect(gcpHourlyUsd("a100", "us-central1")).toBeCloseTo(3.6734, 3);
+    expect(gcpHourlyUsd("t4-ondemand", "us-central1")).toBeCloseTo(0.73, 3);
+    expect(gcpHourlyUsd("l4-ondemand", "us-central1")).toBeCloseTo(0.7068, 3);
+    expect(gcpHourlyUsd("a100-ondemand", "us-central1")).toBeCloseTo(3.6734, 3);
   });
 
   it("has a price for every plan in every region", () => {
@@ -37,34 +37,43 @@ describe("pricing", () => {
     expect(chargeMicros(1_000_000, -5)).toBe(0);
   });
 
-  it("prices Spot plans (H100) at GCP's Spot price and the rest on-demand", () => {
+  it("prices Spot plans (H100) at GCP's Spot price and -ondemand plans on-demand", () => {
     expect(PLANS.h100.spot).toBe(true);
     expect(gcpHourlyUsd("h100", "asia-east1")).toBe(REGION_PRICES["asia-east1"].spot.h100);
     expect(gcpHourlyUsd("h100", "asia-east1")!).toBeLessThan(REGION_PRICES["asia-east1"].plans.h100);
     expect(planPrice(PLANS.h100, "asia-east1", 20)!.hourlyMicros).toBeCloseTo(9.19e6, -4);
-    expect(gcpHourlyUsd("a100", "us-central1")).toBe(REGION_PRICES["us-central1"].plans.a100);
+    expect(gcpHourlyUsd("a100-ondemand", "us-central1")).toBe(REGION_PRICES["us-central1"].plans.a100);
   });
 
-  it("has a Spot variant of every on-demand plan, at the Spot price, and Spot by default", () => {
+  it("makes each GPU's plain plan Spot, with an -ondemand plan beside it", () => {
     for (const id of ["t4", "l4", "a100"]) {
-      const spot = PLANS[`${id}-spot`];
-      expect(spot, id).toBeDefined();
-      expect(spot.spot).toBe(true);
-      expect(PLANS[id].spot).toBeFalsy();
-      expect(spot.machineType).toBe(PLANS[id].machineType);
-      expect(gcpHourlyUsd(spot.id, "us-central1")).toBe(REGION_PRICES["us-central1"].spot[id]);
-      expect(planPrice(spot, "us-central1", 20)!.hourlyMicros).toBeLessThan(planPrice(PLANS[id], "us-central1", 20)!.hourlyMicros);
-      // Spot GPUs have their own quota.
+      const spot = PLANS[id];
+      const od = PLANS[`${id}-ondemand`];
+      expect(spot.spot, id).toBe(true);
+      expect(od.spot, od.id).toBeFalsy();
+      expect(spot.machineType).toBe(od.machineType);
+      expect(gcpHourlyUsd(id, "us-central1")).toBe(REGION_PRICES["us-central1"].spot[id]);
+      expect(gcpHourlyUsd(od.id, "us-central1")).toBe(REGION_PRICES["us-central1"].plans[id]);
+      expect(planPrice(spot, "us-central1", 20)!.hourlyMicros).toBeLessThan(planPrice(od, "us-central1", 20)!.hourlyMicros);
+      // Spot and on-demand GPUs have their own quota.
       expect(offeredRegions("", spot.id).length, spot.id).toBeGreaterThan(0);
+      expect(offeredRegions("", od.id).length, od.id).toBeGreaterThan(0);
     }
-    expect(planPrice(PLANS["l4-spot"], "us-central1", 20)!.hourlyMicros).toBeCloseTo(0.54e6, -4);
-    expect(PLANS["h100-spot"]).toBeUndefined();
-    expect(DEFAULT_PLAN).toBe("l4-spot");
+    expect(planPrice(PLANS.l4, "us-central1", 20)!.hourlyMicros).toBeCloseTo(0.54e6, -4);
+    expect(PLANS["h100-ondemand"]).toBeUndefined();
+    expect(DEFAULT_PLAN).toBe("l4");
+  });
+
+  it("still takes v0.3.14's -spot names", () => {
+    expect(resolvePlan("l4-spot")).toBe(PLANS.l4);
+    expect(resolvePlan("a100-ondemand")).toBe(PLANS["a100-ondemand"]);
+    expect(resolvePlan("h100-spot")).toBe(PLANS.h100);
+    expect(resolvePlan("v100")).toBeUndefined();
   });
 
   it("records Spot and on-demand stockouts apart", () => {
-    expect(capacityKey(PLANS.l4)).toBe("g2-standard-4");
-    expect(capacityKey(PLANS["l4-spot"])).toBe("g2-standard-4:spot");
+    expect(capacityKey(PLANS["l4-ondemand"])).toBe("g2-standard-4");
+    expect(capacityKey(PLANS.l4)).toBe("g2-standard-4:spot");
   });
 
   it("offers H100 only where GCP granted quota (Taiwan)", () => {
@@ -72,10 +81,13 @@ describe("pricing", () => {
     expect(offeredRegions("", "h100").map((r) => r.id)).toEqual(["asia-east1"]);
   });
 
-  it("$10 buys about two hours of A100", () => {
-    const hours = 10e6 / planPrice(PLANS.a100, "us-central1", 20)!.hourlyMicros;
-    expect(hours).toBeGreaterThan(2);
-    expect(hours).toBeLessThan(2.5);
+  it("$10 buys about four hours of Spot A100, or two on-demand", () => {
+    const spot = 10e6 / planPrice(PLANS.a100, "us-central1", 20)!.hourlyMicros;
+    expect(spot).toBeGreaterThan(3.8);
+    expect(spot).toBeLessThan(4.2);
+    const od = 10e6 / planPrice(PLANS["a100-ondemand"], "us-central1", 20)!.hourlyMicros;
+    expect(od).toBeGreaterThan(2);
+    expect(od).toBeLessThan(2.5);
   });
 });
 
@@ -97,12 +109,12 @@ describe("regions", () => {
   });
 
   it("tries regions with GPUs to spare first, nearest first, then full ones", () => {
-    const a100 = offeredRegions("", "a100");
+    const a100 = offeredRegions("", "a100-ondemand");
     const chicago = [41.88, -87.63] as const;
     // Nothing in use: plain nearest first.
-    expect(ids(byAvailability(a100, "a100", {}, ...chicago))[0]).toBe("us-central1");
-    // us-central1's 4 A100s all taken: it moves behind every region with room.
-    const full = ids(byAvailability(a100, "a100", { "us-central1": 4 }, ...chicago));
+    expect(ids(byAvailability(a100, "a100-ondemand", {}, ...chicago))[0]).toBe("us-central1");
+    // us-central1's 4 on-demand A100s all taken: it moves behind every region with room.
+    const full = ids(byAvailability(a100, "a100-ondemand", { "us-central1": 4 }, ...chicago));
     expect(full[0]).not.toBe("us-central1");
     expect(full[full.length - 1]).toBe("us-central1");
     // H100 has one region; it's always tried, full or not.
