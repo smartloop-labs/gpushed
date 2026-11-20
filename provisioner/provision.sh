@@ -137,7 +137,7 @@ apply() { # ZONE STATUS
     now=$(gcloud compute instances describe "gp-$BOX_ID" --zone "$1" --format="value(status)" 2>/dev/null || true)
     if [ "$now" != "$last" ]; then
       case "$now" in
-        PROVISIONING) msg="Google is reserving a $GPU_NAME for you in $1" ;;
+        PROVISIONING) msg="Google is reserving your $GPU_NAME in $1" ;;
         STAGING) msg="attaching the $GPU_NAME, disk and network in $1" ;;
         RUNNING) msg="booting your VM in $1" ;;
         *) msg="" ;;
