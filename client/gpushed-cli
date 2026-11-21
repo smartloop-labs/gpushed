@@ -358,6 +358,8 @@ Box
                            region with free GPUs, and set it up
   status                   Show your box
   ssh [cmd...]             SSH into your box, starting it (or creating one) first
+  cp SRC... DEST           Copy files to or from your box with rsync; prefix box
+                           paths with ":"  (gpushed cp data/ :work/, gpushed cp :out .)
   stop                     Stop the box; only its disk is billed while stopped
   start                    Start a stopped box
   down                     Delete the box and its disk
@@ -402,6 +404,41 @@ create_box() {
   say "   gpushed ssh      # connect, then try: nvidia-smi"
   say "   gpushed stop     # pause it (disk kept, ~\$0.03/h)"
   say "   gpushed down     # delete it"
+}
+
+# Get the box running and reachable over SSH, whatever state it's in: start
+# a stopped one, wait out a start or stop in progress, and (with "create")
+# create one if there's none. Sets BOX_USER and BOX_IP.
+wake_box() {
+  local woke=1 status
+  box_json
+  if [ "$API_STATUS" = 404 ]; then
+    [ "${1:-}" = create ] || die "You have no box. Create one with: gpushed up"
+    say "No box yet; creating one with the default plan first."
+    create_box
+  else
+    status=$(jq -r .box.status <<<"$API_BODY")
+    if [ "$status" = stopping ]; then
+      say "⏸️  Your box is stopping; it will start again once it has stopped..."
+      wait_for stopped
+      status=stopped
+    fi
+    case "$status" in
+      stopped)
+        api POST /box/start
+        say "▶️  Your box is stopped; starting it..."
+        wait_for running
+        ;;
+      starting | pending)
+        say "⏳ Your box is starting; waiting for it..."
+        wait_for running
+        ;;
+      *) woke=0 ;;
+    esac
+  fi
+  require_running_box
+  [ $woke = 0 ] || wait_for_ssh # just started: sshd may not be up yet
+  [ -f "$KEY" ] || die "This Mac doesn't have the key for your box (~/.gpushed/state/box_ssh_key)."
 }
 
 case "$cmd" in
@@ -514,36 +551,16 @@ case "$cmd" in
     ;;
 
   ssh)
-    # Whatever state the box is in, get it running first: start a stopped
-    # one, wait out a start or stop in progress, create one if there's none.
-    box_json; woke=1
-    if [ "$API_STATUS" = 404 ]; then
-      say "No box yet; creating one with the default plan first."
-      create_box
-    else
-      status=$(jq -r .box.status <<<"$API_BODY")
-      if [ "$status" = stopping ]; then
-        say "⏸️  Your box is stopping; it will start again once it has stopped..."
-        wait_for stopped
-        status=stopped
-      fi
-      case "$status" in
-        stopped)
-          api POST /box/start
-          say "▶️  Your box is stopped; starting it..."
-          wait_for running
-          ;;
-        starting | pending)
-          say "⏳ Your box is starting; waiting for it..."
-          wait_for running
-          ;;
-        *) woke=0 ;;
-      esac
-    fi
-    require_running_box
-    [ $woke = 0 ] || wait_for_ssh # just started: sshd may not be up yet
-    [ -f "$KEY" ] || die "This Mac doesn't have the key for your box (~/.gpushed/state/box_ssh_key)."
+    wake_box create
     exec ssh "${SSH_OPTS[@]}" -t "$BOX_USER@$BOX_IP" "$@"
+    ;;
+
+  box-addr)
+    # Internal, for `gpushed cp` on the Mac: get the box running, then leave
+    # user@ip in the state dir (stdout carries the progress messages).
+    rm -f "$STATE/.box-addr"
+    wake_box
+    printf '%s@%s\n' "$BOX_USER" "$BOX_IP" >"$STATE/.box-addr"
     ;;
 
   stop)

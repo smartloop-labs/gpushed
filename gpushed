@@ -189,6 +189,7 @@ run_client() {
   container run "${flags[@]}" "$IMAGE" gpushed-cli "$@" || status=$?
   sleep 0.6 # let the watcher open a URL written just before exit
   kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true # reap it quietly (no "Terminated" notice)
   return $status
 }
 
@@ -228,6 +229,55 @@ case "${1:-help}" in
     rm -f "${GPUSHED_BIN_DIR:-$HOME/.local/bin}/gpushed"
     rm -rf "$BOX_DIR"
     say "✅ Uninstalled."
+    ;;
+  cp)
+    # rsync between this Mac and the box. It runs here, not in the client
+    # container, which can't see the Mac's files; the client only wakes the
+    # box and tells us where it is.
+    shift
+    cp_usage="Usage: gpushed cp [rsync options] SRC... DEST   (box paths start with \":\")
+  gpushed cp data.csv model/ :          # into your home dir on the box
+  gpushed cp ./dataset :work/           # the folder itself, into ~/work/dataset
+  gpushed cp :work/out/ ./out           # the folder's contents, back to this Mac"
+    opts=() paths=()
+    for a in "$@"; do
+      case "$a" in
+        -h | --help) say "$cp_usage"; exit 0 ;;
+        -?*) opts+=("$a") ;;
+        *) paths+=("$a") ;;
+      esac
+    done
+    [ ${#paths[@]} -ge 2 ] || die "$cp_usage"
+    dest="${paths[${#paths[@]}-1]}"
+    srcs=("${paths[@]:0:${#paths[@]}-1}")
+    remote_srcs=0
+    for s in "${srcs[@]}"; do [[ $s == :* ]] && remote_srcs=$((remote_srcs + 1)); done
+    if [[ $dest == :* ]]; then
+      [ $remote_srcs = 0 ] || die "Copy to the box or from it, not both: only DEST or the SRCs start with \":\"."
+    else
+      [ $remote_srcs = ${#srcs[@]} ] || die "Put \":\" before box paths, e.g. gpushed cp file.txt :  (to the box) or gpushed cp :file.txt .  (from it)"
+    fi
+    if [[ $dest == :* ]]; then
+      for s in "${srcs[@]}"; do [ -e "$s" ] || die "No such file or folder: $s"; done
+    fi
+
+    command -v rsync >/dev/null 2>&1 || die "rsync isn't installed on this Mac."
+    preflight
+    ensure_image
+    rm -f "$STATE/.box-addr"
+    run_client box-addr
+    addr="$(cat "$STATE/.box-addr" 2>/dev/null || true)"
+    rm -f "$STATE/.box-addr"
+    [ -n "$addr" ] || die "Couldn't get your box's address."
+
+    # ":path" -> "user@ip:path" (a bare ":" is the home dir on the box).
+    args=()
+    for p in "${srcs[@]}" "$dest"; do
+      if [[ $p == :* ]]; then args+=("$addr$p"); else args+=("$p"); fi
+    done
+    exec rsync -aP ${opts[@]+"${opts[@]}"} \
+      -e "ssh -i '$STATE/box_ssh_key' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30" \
+      "${args[@]}"
     ;;
   *)
     preflight

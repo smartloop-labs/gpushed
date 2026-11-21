@@ -22,6 +22,7 @@ Then:
 gpushed topup        # add credit with Stripe (minimum $10)
 gpushed up           # create your box (default: 1x L4 24 GB)
 gpushed ssh          # connect; try nvidia-smi
+gpushed cp data/ :   # copy a folder to the box (and :path back)
 gpushed down         # delete it
 ```
 
@@ -104,6 +105,7 @@ with no credit for 24 hours is deleted.
 | `gpushed up [plan]` | Create your box and watch it install the driver + CUDA |
 | `gpushed status` | Show your box |
 | `gpushed ssh [cmd]` | SSH into the box, or run a command on it. Starts a stopped box first, or creates one (default plan) if you have none |
+| `gpushed cp SRC... DEST` | Copy files between this Mac and the box with rsync, straight over SSH. Box paths start with `:` (a bare `:` is your home dir there): `gpushed cp data.csv :`, `gpushed cp :work/out ./`. Starts a stopped box first. Resumes partial transfers, skips unchanged files, and passes rsync options through (`--exclude=...`, `--delete`). As with rsync, `dir` copies the folder and `dir/` its contents |
 | `gpushed stop` / `start` | Pause and resume (disk kept) |
 | `gpushed down` | Delete the box and its disk |
 | `gpushed update` | Upgrade to the latest release |
