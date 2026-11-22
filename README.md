@@ -3,7 +3,7 @@
 > **macOS and Linux.** Needs `curl`, `jq` and `ssh`. Windows isn't supported
 > (WSL should work but isn't tested).
 
-Your dedicated NVIDIA GPU, one command away, from macOS or Linux. Sign in with your email, add credit,
+Your NVIDIA GPU, one box away, from macOS or Linux. Sign in with your email, add credit,
 and get an NVIDIA GPU box (Ubuntu 22.04 with the driver, CUDA, Python, Node.js
 and Rust ready) in a few minutes. There's no cloud account, quota request or
 Terraform to set up. You pay per second from a prepaid balance and delete the
