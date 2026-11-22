@@ -98,6 +98,174 @@ IDLEEOF
 systemctl daemon-reload
 systemctl enable --now gpushed-idle.timer || echo "WARNING: could not start the idle watcher"
 
+# ---------------------------------------------------------------- shell look
+# The GPU Shed login banner, the Starship prompt in Omarchy's Osaka Jade
+# palette, and Hack Nerd Font. Runs on every boot and skips what's already
+# installed; a failed download never fails provisioning.
+# (No dollar-brace expansions here: this file is a Terraform template.)
+gpushed_shell_look() {
+  mkdir -p /etc/gpushed
+
+  # GPU name for the banner and the prompt, cached in /run (cleared on boot).
+  # The login banner (run as root) refreshes it if the driver came up later.
+  nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
+    | head -1 | sed 's/^NVIDIA //' > /run/gpushed-gpu || true
+  [ -s /run/gpushed-gpu ] || rm -f /run/gpushed-gpu
+
+  # Login banner: shown on `gpushed ssh` and any interactive SSH login.
+  cat > /etc/update-motd.d/00-gpushed << 'MOTDEOF'
+#!/bin/sh
+# gpushed: GPU Shed login banner (Osaka Jade colors).
+if [ ! -s /run/gpushed-gpu ]; then
+  nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null \
+    | head -1 | sed 's/^NVIDIA //' > /run/gpushed-gpu 2>/dev/null || true
+fi
+gpu=$(cat /run/gpushed-gpu 2>/dev/null)
+J='\033[38;2;80;148;117m'   # jade    #509475
+M='\033[38;2;99;176;122m'   # mint    #63b07a
+T='\033[38;2;45;213;183m'   # teal    #2DD5B7
+S='\033[38;2;215;201;149m'  # sand    #D7C995
+D='\033[38;2;83;104;91m'    # slate   #53685B
+R='\033[0m'
+printf '\n'
+printf "$J"'   ____ ____  _   _   '"$M"' ____  _   _ _____ ____  '"$R"'\n'
+printf "$J"'  / ___|  _ \\| | | |  '"$M"'/ ___|| | | | ____|  _ \\ '"$R"'\n'
+printf "$J"' | |  _| |_) | | | |  '"$M"'\\___ \\| |_| |  _| | | | |'"$R"'\n'
+printf "$J"' | |_| |  __/| |_| |  '"$M"' ___) |  _  | |___| |_| |'"$R"'\n'
+printf "$J"'  \\____|_|    \\___/   '"$M"'|____/|_| |_|_____|____/ '"$R"'\n'
+printf '\n'
+[ -n "$gpu" ] && printf "  $T"'GPU '"$S"'%s'"$R"'\n' "$gpu"
+printf "  $D"'CUDA 12.6 · Python 3.11 · Node.js 24 · Rust · gpushed.dev'"$R"'\n\n'
+MOTDEOF
+  chmod 755 /etc/update-motd.d/00-gpushed
+
+  # Starship prompt.
+  if ! command -v starship >/dev/null 2>&1; then
+    curl -fsSL -m 60 https://starship.rs/install.sh -o /tmp/starship-install.sh \
+      && sh /tmp/starship-install.sh -y -b /usr/local/bin >/dev/null \
+      || echo "WARNING: could not install Starship"
+    rm -f /tmp/starship-install.sh
+  fi
+
+  # Osaka Jade, powerline style: GPU, directory, git, languages, duration.
+  cat > /etc/gpushed/starship.toml << 'STARSHIPEOF'
+"$schema" = "https://starship.rs/config-schema.json"
+# gpushed: Starship in Omarchy's Osaka Jade palette. Make your own with
+# ~/.config/starship.toml (it takes precedence over this file).
+
+palette = "osaka_jade"
+add_newline = true
+
+format = """
+[](fg:shade)\
+$custom\
+[](fg:shade bg:jade)\
+$directory\
+[](fg:jade bg:slate)\
+$git_branch\
+$git_status\
+[](fg:slate bg:shade)\
+$python\
+$nodejs\
+$rust\
+$cmd_duration\
+[ ](fg:shade)\
+$line_break\
+$character"""
+
+[palettes.osaka_jade]
+ink = "#111c18"
+shade = "#23372B"
+slate = "#53685B"
+jade = "#509475"
+moss = "#549e6a"
+mint = "#63b07a"
+teal = "#2DD5B7"
+seafoam = "#9eebb3"
+sand = "#D7C995"
+khaki = "#C1C497"
+cream = "#F6F5DD"
+coral = "#FF5345"
+gold = "#E5C736"
+
+[custom.gpu]
+command = "cat /run/gpushed-gpu | cut -d, -f1"
+when = "test -s /run/gpushed-gpu"
+shell = ["sh"]
+symbol = "󰢮 "
+style = "fg:teal bg:shade"
+format = "[ $symbol$output ]($style)"
+
+[directory]
+style = "fg:ink bg:jade"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+symbol = ""
+style = "fg:cream bg:slate"
+format = "[ $symbol $branch ]($style)"
+
+[git_status]
+style = "fg:gold bg:slate"
+format = "[($all_status$ahead_behind )]($style)"
+
+[python]
+symbol = ""
+style = "fg:seafoam bg:shade"
+format = "[ $symbol ($version )(\\($virtualenv\\) )]($style)"
+
+[nodejs]
+symbol = ""
+style = "fg:seafoam bg:shade"
+format = "[ $symbol ($version) ]($style)"
+
+[rust]
+symbol = ""
+style = "fg:seafoam bg:shade"
+format = "[ $symbol ($version) ]($style)"
+
+[cmd_duration]
+min_time = 2000
+style = "fg:sand bg:shade"
+format = "[ 󱦟 $duration ]($style)"
+
+[character]
+success_symbol = "[❯](bold fg:mint)"
+error_symbol = "[❯](bold fg:coral)"
+STARSHIPEOF
+  chmod 644 /etc/gpushed/starship.toml
+
+  # Every interactive bash (login or not, so VS Code terminals too) gets the
+  # prompt, unless the user has their own Starship config or opts out with
+  # GPUSHED_NO_STARSHIP=1.
+  if ! grep -q 'gpushed starship' /etc/bash.bashrc 2>/dev/null; then
+    cat >> /etc/bash.bashrc << 'BASHRCEOF'
+
+# gpushed starship: Osaka Jade prompt (see /etc/gpushed/starship.toml).
+if command -v starship >/dev/null 2>&1 && [ -z "$GPUSHED_NO_STARSHIP" ] && [ "$TERM" != dumb ]; then
+  [ -f "$HOME/.config/starship.toml" ] || export STARSHIP_CONFIG=/etc/gpushed/starship.toml
+  eval "$(starship init bash)"
+fi
+BASHRCEOF
+  fi
+
+  # Hack Nerd Font, for anything rendered on the box itself.
+  if [ ! -d /usr/local/share/fonts/HackNerdFont ]; then
+    mkdir -p /usr/local/share/fonts/HackNerdFont
+    if curl -fsSL -m 120 https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.tar.xz -o /tmp/hack-nf.tar.xz \
+       && tar -xJf /tmp/hack-nf.tar.xz -C /usr/local/share/fonts/HackNerdFont --wildcards '*.ttf'; then
+      command -v fc-cache >/dev/null 2>&1 && fc-cache -f /usr/local/share/fonts/HackNerdFont >/dev/null 2>&1
+    else
+      echo "WARNING: could not install Hack Nerd Font"
+      rm -rf /usr/local/share/fonts/HackNerdFont
+    fi
+    rm -f /tmp/hack-nf.tar.xz
+  fi
+}
+gpushed_shell_look || echo "WARNING: shell setup (banner, Starship, font) didn't finish"
+
 if [ -f /var/log/provisioning-completed ]; then
   echo "Already provisioned: $(cat /var/log/provisioning-completed)"
   exit 0
