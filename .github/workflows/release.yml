@@ -1,10 +1,9 @@
-# On a version tag: build the CLI package, the Apple-container client image
-# (linux/arm64) and the provisioner image (linux/amd64), and publish them to
+# On a version tag: build the CLI package and the provisioner image
+# (linux/amd64), and publish them to
 # Cloudflare R2, served at vars.GPUSHED_DL (e.g. https://dl.gpushed.dev):
 #
 #   latest                                     -> "v1.2.3"
 #   v1.2.3/gpushed.tar.gz(.sha256)             CLI package (install.sh fetches it)
-#   v1.2.3/gpushed-cli-arm64.oci.tar(.sha256)  client image, `container image load`
 #   v1.2.3/gpushed-provisioner-amd64.tar.gz(.sha256)  used by provision.yml
 #
 # and push the provisioner image to Artifact Registry (vars.GCP_PROVISIONER_IMAGE)
@@ -40,7 +39,6 @@ jobs:
       V: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - name: Build CLI package
@@ -52,11 +50,6 @@ jobs:
           tar -czf "dist/gpushed.tar.gz" -C build gpushed
           tar -tzf dist/gpushed.tar.gz
 
-      - name: Build client image (Apple container, linux/arm64)
-        run: |
-          docker buildx build --platform linux/arm64 --build-arg VERSION="$V" \
-            --output "type=oci,dest=dist/gpushed-cli-arm64.oci.tar,name=gpushed-cli:$V" -f client/Containerfile client
-
       - name: Build provisioner image (linux/amd64)
         run: |
           docker buildx build --platform linux/amd64 --load -t "gpushed-provisioner:$V" -f provisioner/Containerfile provisioner
@@ -66,8 +59,11 @@ jobs:
         run: |
           bash -n gpushed install.sh client/gpushed-cli provisioner/provision.sh provisioner/worker.sh
           docker run --rm --entrypoint provision "gpushed-provisioner:$V" 2>&1 | grep -q usage
-          docker buildx build --platform linux/amd64 --load -t gpushed-cli:test -f client/Containerfile client
-          docker run --rm gpushed-cli:test gpushed-cli version | grep -q .
+          # The packaged client runs natively: check it starts and reports its version.
+          mkdir -p build/smoke && tar -xzf dist/gpushed.tar.gz -C build/smoke
+          [ "$(build/smoke/gpushed/gpushed version)" = "$V" ]
+          GPUSHED_VERSION="$V" bash build/smoke/gpushed/client/gpushed-cli version | grep -qx "$V"
+          build/smoke/gpushed/gpushed help >/dev/null
 
       - name: Checksums
         run: cd dist && for f in *; do sha256sum "$f" > "$f.sha256"; done && ls -la

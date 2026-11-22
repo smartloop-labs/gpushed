@@ -1,7 +1,7 @@
 # gpushed
 
-> **macOS only:** Macs with Apple silicon on macOS 26+, using Apple's native
-> `container` runtime. Linux, Windows and Intel Macs aren't supported.
+> **macOS and Linux.** Needs `curl`, `jq` and `ssh`. Windows isn't supported
+> (WSL should work but isn't tested).
 
 Your dedicated NVIDIA GPU, on your Mac. Sign in with your email, add credit,
 and get an NVIDIA GPU box (Ubuntu 22.04 with the driver, CUDA, Python, Node.js
@@ -9,8 +9,8 @@ and Rust ready) in a few minutes. There's no cloud account, quota request or
 Terraform to set up. You pay per second from a prepaid balance and delete the
 box when you're done.
 
-Install. This also runs `gpushed init`, which sets up Apple's container runtime
-and signs you in by email:
+Install. This also runs `gpushed init`, which checks for the tools gpushed
+uses and signs you in:
 
 ```bash
 curl -fsSL gpushed.dev/install.sh | bash
@@ -28,15 +28,19 @@ gpushed down         # delete it
 
 ## Requirements
 
-- A Mac with **Apple silicon** on **macOS 26** or later
-- Apple's native container runtime, which `gpushed init` sets up for you: it
-  downloads the latest signed installer from
-  <https://github.com/apple/container/releases>, checks it's signed by Apple
-  (Developer ID "Apple Inc. - Containerization") and notarized, installs it
-  (asks for your password once), and starts it
+- macOS (Intel or Apple silicon) or Linux
+- `bash` (macOS's built-in 3.2 is fine), `curl`, `ssh` and `jq`. macOS and
+  most Linux distributions ship all but sometimes `jq`; if it's missing,
+  `gpushed init` tells you how to install it (`brew install jq`,
+  `sudo apt-get install jq`, ...)
 
-The gpushed client runs inside an Apple container, so nothing else needs to be
-installed. `init` also downloads the client image from our release bucket.
+The client is a bash script that talks to the gpushed API; there's nothing
+else to install and no cloud credentials on your machine.
+
+Upgrading from v0.3.x, which ran the client in Apple's `container` runtime:
+`gpushed init` deletes the old client image. The runtime itself stays
+installed; remove it with Apple's `uninstall-container.sh` if nothing else
+uses it.
 
 ## Plans and pricing
 
@@ -95,9 +99,9 @@ with no credit for 24 hours is deleted.
 
 | Command | What it does |
 |---|---|
-| `gpushed init` | Install Apple's container runtime, fetch the client, sign in |
+| `gpushed init` | Check for curl, jq and ssh, then sign in |
 | `gpushed login` | Sign in with your smartloop account in the browser (`--email [address]`: with an emailed code instead) |
-| `gpushed logout` | Sign out on this Mac |
+| `gpushed logout` | Sign out on this computer |
 | `gpushed balance` | Show your balance |
 | `gpushed topup [usd]` | Add credit (opens Stripe Checkout; minimum $10). Without an amount, pick $10, $25, $50 or $100 |
 | `gpushed history` | Recent charges and top-ups |
@@ -105,11 +109,11 @@ with no credit for 24 hours is deleted.
 | `gpushed up [plan]` | Create your box and watch it install the driver + CUDA |
 | `gpushed status` | Show your box |
 | `gpushed ssh [cmd]` | SSH into the box, or run a command on it. Starts a stopped box first, or creates one (default plan) if you have none |
-| `gpushed cp SRC... DEST` | Copy files between this Mac and the box with rsync, straight over SSH. Box paths start with `:` (a bare `:` is your home dir there): `gpushed cp data.csv :`, `gpushed cp :work/out ./`. Starts a stopped box first. Resumes partial transfers, skips unchanged files, and passes rsync options through (`--exclude=...`, `--delete`). As with rsync, `dir` copies the folder and `dir/` its contents |
+| `gpushed cp SRC... DEST` | Copy files between this computer and the box with rsync, straight over SSH. Box paths start with `:` (a bare `:` is your home dir there): `gpushed cp data.csv :`, `gpushed cp :work/out ./`. Starts a stopped box first. Resumes partial transfers, skips unchanged files, and passes rsync options through (`--exclude=...`, `--delete`). As with rsync, `dir` copies the folder and `dir/` its contents |
 | `gpushed stop` / `start` | Pause and resume (disk kept) |
 | `gpushed down` | Delete the box and its disk |
 | `gpushed update` | Upgrade to the latest release |
-| `gpushed uninstall` | Remove gpushed from this Mac |
+| `gpushed uninstall` | Remove gpushed from this computer |
 
 Your API token and the box's SSH key are in `~/.gpushed/state`. To SSH from
 outside gpushed: `ssh -i ~/.gpushed/state/box_ssh_key boxuser@<ip>` (the IP is
@@ -142,7 +146,7 @@ can't reach each other.
 ## How it works
 
 ```
- Mac ─ gpushed ─► Apple container (gpushed-cli image, from R2; no cloud keys)
+ Mac/Linux ─ gpushed ─► gpushed-cli (bash + curl + jq + ssh; no cloud keys)
                         │ API token (per user)
                         ▼
               gpushed API  (Cloudflare Worker + D1)
@@ -162,14 +166,14 @@ can't reach each other.
 
 | Path | What it is |
 |---|---|
-| [`gpushed`](gpushed), [`install.sh`](install.sh) | Mac command and installer |
-| [`client/`](client) | Client image (`Containerfile`) and the CLI that runs in it |
+| [`gpushed`](gpushed), [`install.sh`](install.sh) | The `gpushed` command (checks dependencies, runs the CLI) and installer |
+| [`client/`](client) | The CLI (`gpushed-cli`): bash, compatible with macOS's bash 3.2 |
 | [`api/`](api) | Cloudflare Worker: smartloop sign-in, billing, Stripe webhook, metering, dispatch |
 | [`provisioner/`](provisioner) | Provisioner image, entrypoint and the box's Terraform |
 | [`infra/bootstrap/`](infra/bootstrap) | One-time GCP setup: network, service accounts, the provisioner Cloud Run job, Workload Identity |
 | [`.github/workflows/`](.github/workflows) | `release.yml`, `ci.yml` (tests + API deploy), `provision.yml` (the old provisioner, until the switch to Cloud Run) |
 
-**Why the keys aren't in the client image.** The client runs on users' Macs, so
+**Why the keys aren't in the client.** The client runs on users' machines, so
 anything inside it can be read by them. A cloud key there would let anyone
 create VMs in our project without paying. Instead, the client holds only a
 per-user API token; the API checks the balance before it asks the provisioner
@@ -327,8 +331,7 @@ price while running and the disk price while stopped.
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The release workflow builds the CLI package, the client image (linux/arm64,
-OCI archive for `container image load`) and the provisioner image
+The release workflow builds the CLI package and the provisioner image
 (linux/amd64), uploads them to R2 under `v0.2.0/`, then moves `latest`. It
 also pushes the provisioner image to Artifact Registry and points the
 `gpushed-provisioner` Cloud Run job at it, so new box runs use it at once.
@@ -343,9 +346,8 @@ npx wrangler dev --env dev --test-scheduled --ip 0.0.0.0   # emails and dispatch
 # API on :8788, or set it to https://api.smartloop.ai to use real accounts).
 npm test
 
-# In another terminal, from a checkout (builds the client image locally). Use
-# the Mac's address as seen from containers (the vmnet gateway, usually 192.168.64.1):
-GPUSHED_API=http://192.168.64.1:8787 GPUSHED_SMARTLOOP_API=http://192.168.64.1:8788 \
+# In another terminal, from a checkout:
+GPUSHED_API=http://localhost:8787 GPUSHED_SMARTLOOP_API=http://localhost:8788 \
   ./gpushed login --email you@example.com
 ```
 
