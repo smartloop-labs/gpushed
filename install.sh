@@ -11,8 +11,8 @@
 #   GPUSHED_VERSION   Release to install, e.g. v0.2.0 (default: latest)
 #   GPUSHED_HOME      Install directory; also holds your API token and SSH key
 #                     (default: ~/.gpushed)
-#   GPUSHED_BIN_DIR   Where the `gpushed` command, and its short alias `gs`
-#                     (unless another gs is installed), are linked
+#   GPUSHED_BIN_DIR   Where the `gpushed` command, and its short alias `gsh`
+#                     (unless another gsh is installed), are linked
 #                     (default: ~/.local/bin)
 #   GPUSHED_DL        Release download base (default: https://dl.gpushed.dev)
 #   GPUSHED_NO_INIT   Set to 1 to skip running `gpushed init` afterwards
@@ -84,16 +84,18 @@ main() {
   mkdir -p "$bin_dir"
   ln -sf "$home/gpushed" "$bin_dir/gpushed"
 
-  # `gs`, a short alias, unless another gs (such as Ghostscript) has the name.
+  # `gsh` (gpu shed), a short alias, unless something else has the name.
+  # (Up to v0.4.0 it was `gs`, which is Ghostscript on most Linux systems; a
+  # gs link made then keeps working, but isn't created any more.)
   local alias_note="" other
-  other="$(command -v gs 2>/dev/null || true)"
-  if [ -L "$bin_dir/gs" ] && [ "$(readlink "$bin_dir/gs")" = "$home/gpushed" ]; then
-    alias_note="   Alias:   gs (gs up, gs ssh, ...)"
-  elif [ -e "$bin_dir/gs" ] || { [ -n "$other" ] && [ "$other" != "$bin_dir/gs" ]; }; then
-    alias_note="   Alias:   skipped; gs is already ${other:-$bin_dir/gs} (Ghostscript?)"
+  other="$(command -v gsh 2>/dev/null || true)"
+  if [ -L "$bin_dir/gsh" ] && [ "$(readlink "$bin_dir/gsh")" = "$home/gpushed" ]; then
+    alias_note="   Alias:   gsh (gsh up, gsh ssh, ...)"
+  elif [ -e "$bin_dir/gsh" ] || { [ -n "$other" ] && [ "$other" != "$bin_dir/gsh" ]; }; then
+    alias_note="   Alias:   skipped; gsh is already ${other:-$bin_dir/gsh}. Use gpushed."
   else
-    ln -sf "$home/gpushed" "$bin_dir/gs"
-    alias_note="   Alias:   gs (gs up, gs ssh, ...)"
+    ln -sf "$home/gpushed" "$bin_dir/gsh"
+    alias_note="   Alias:   gsh (gsh up, gsh ssh, ...)"
   fi
 
   say ""

@@ -103,7 +103,9 @@ case "${1:-help}" in
     remove_old_images
     bin_dir="${GPUSHED_BIN_DIR:-$HOME/.local/bin}"
     rm -f "$bin_dir/gpushed"
-    [ -L "$bin_dir/gs" ] && [ "$(readlink "$bin_dir/gs")" = "$BOX_DIR/gpushed" ] && rm -f "$bin_dir/gs"
+    for a in gsh gs; do # gs: the alias up to v0.4.0
+      [ -L "$bin_dir/$a" ] && [ "$(readlink "$bin_dir/$a")" = "$BOX_DIR/gpushed" ] && rm -f "$bin_dir/$a"
+    done
     rm -rf "$BOX_DIR"
     say "✅ Uninstalled."
     ;;
