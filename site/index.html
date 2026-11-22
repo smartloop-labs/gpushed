@@ -497,13 +497,13 @@
       </div>
       <div class="req">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 4.5 6 8l-3.5 3.5M8 11.5h5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Then use <code>gs</code>, short for <code>gpushed</code>: <code>gs up</code>, <code>gs ssh</code>, <code>gs down</code>. If another <code>gs</code> is installed (Ghostscript), type <code>gpushed</code> instead.</span>
+        <span>Then use <code>gsh</code> (gpu shed), short for <code>gpushed</code>: <code>gsh up</code>, <code>gsh ssh</code>, <code>gsh down</code>.</span>
       </div>
     </div>
 
-    <div class="term" role="img" aria-label="Terminal: gs up creates an L4 box with CUDA ready; nvidia-smi shows the GPU">
+    <div class="term" role="img" aria-label="Terminal: gsh up creates an L4 box with CUDA ready; nvidia-smi shows the GPU">
       <div class="term-bar"><i></i><i></i><i></i></div>
-<pre><span class="t-cmd">gs up</span>        <span class="t-dim"># gs = gpushed</span>
+<pre><span class="t-cmd">gsh up</span>       <span class="t-dim"># gsh = gpushed</span>
 <span class="t-dim">🚀 Creating box b7k2… (l4, $0.54/h)</span>
 <span class="t-dim">   … pending</span>
 <span class="t-dim">   … running</span>
@@ -511,7 +511,7 @@
 <span class="t-dim">📦 Prebuilt image: CUDA 12.6, Python 3.11, Node, Rust</span>
 <span class="t-g">🎉 Your GPU box is ready.</span>
 
-<span class="t-cmd">gs ssh</span>
+<span class="t-cmd">gsh ssh</span>
 <span class="t-dim">boxuser@gp-b7k2:~$</span> nvidia-smi --query-gpu=name,memory.total --format=csv
 name, memory.total [MiB]
 <span class="t-a">NVIDIA L4, 23034 MiB</span>
@@ -522,7 +522,7 @@ name, memory.total [MiB]
 
   <div class="wrap">
     <div class="stats" role="list">
-      <div class="stat" role="listitem"><b>Minutes</b><span>from <code>gs&nbsp;up</code> to SSH</span></div>
+      <div class="stat" role="listitem"><b>Minutes</b><span>from <code>gsh&nbsp;up</code> to SSH</span></div>
       <div class="stat" role="listitem"><b>$0.54<small>/h</small></b><span>for a 24 GB L4 on Spot, per second</span></div>
       <div class="stat" role="listitem"><b>16–80<small> GB</small></b><span>dedicated GPU memory</span></div>
       <div class="stat" role="listitem"><b>6</b><span>regions across US, Europe, Asia</span></div>
@@ -616,17 +616,17 @@ name, memory.total [MiB]
         <div class="step">
           <h3>Set up</h3>
           <p>Installs the <code>gpushed</code> command and signs you in by email. Fully managed, no cloud account setup required.</p>
-          <code>gs init</code>
+          <code>gsh init</code>
         </div>
         <div class="step">
           <h3>Add credit</h3>
           <p>Prepay with Stripe, from $10. You can never be billed more than you put in.</p>
-          <code>gs topup</code>
+          <code>gsh topup</code>
         </div>
         <div class="step">
           <h3>Get a GPU</h3>
           <p>Pick a plan. Your box boots with CUDA, Python, Node.js and Rust preinstalled, so you SSH in and start.</p>
-          <code>gs up</code>
+          <code>gsh up</code>
         </div>
       </div>
     </div>
@@ -696,7 +696,7 @@ name, memory.total [MiB]
       <div class="kicker">Pricing</div>
       <h2>Simple hourly GPU prices, charged by the second.</h2>
       <p class="sub">Each price includes the machine, a 100 GB SSD and a public IP. Paid from your smartloop credits: your plan’s monthly credits first, then any you add (from $10). US prices shown; Europe and Asia cost a little more.</p>
-      <p class="sub">Boxes are <strong>Spot</strong> by default: much cheaper, but Google may take the GPU back at any time. Your box is then stopped with its disk kept, and <code>gs start</code> resumes it. For work that mustn't be interrupted, pick on-demand.</p>
+      <p class="sub">Boxes are <strong>Spot</strong> by default: much cheaper, but Google may take the GPU back at any time. Your box is then stopped with its disk kept, and <code>gsh start</code> resumes it. For work that mustn't be interrupted, pick on-demand.</p>
       <div class="plans">
         <div class="plan hot">
           <div class="tag">Default · best value</div>
@@ -704,8 +704,8 @@ name, memory.total [MiB]
           <div class="spec">24 GB · 4 vCPU · 16 GB RAM</div>
           <p class="good">7B–8B LoRA, vLLM serving, SDXL.</p>
           <div class="price">$0.54<small> / hour, Spot</small></div>
-          <div class="id">gs up</div>
-          <div class="alt">On-demand $0.88 / hour · <code>gs up l4-ondemand</code></div>
+          <div class="id">gsh up</div>
+          <div class="alt">On-demand $0.88 / hour · <code>gsh up l4-ondemand</code></div>
         </div>
         <div class="plan">
           <div class="tag">Large models</div>
@@ -713,8 +713,8 @@ name, memory.total [MiB]
           <div class="spec">40 GB · 12 vCPU · 85 GB RAM</div>
           <p class="good">13B+ fine-tuning, long contexts.</p>
           <div class="price">$2.53<small> / hour, Spot</small></div>
-          <div class="id">gs up a100</div>
-          <div class="alt">On-demand $4.44 / hour · <code>gs up a100-ondemand</code></div>
+          <div class="id">gsh up a100</div>
+          <div class="alt">On-demand $4.44 / hour · <code>gsh up a100-ondemand</code></div>
         </div>
         <div class="plan">
           <div class="tag">Frontier · Spot</div>
@@ -722,7 +722,7 @@ name, memory.total [MiB]
           <div class="spec">80 GB · 26 vCPU · 234 GB RAM</div>
           <p class="good">30B–70B models, full fine-tuning. Checkpoint often.</p>
           <div class="price">$9.19<small> / hour, Spot</small></div>
-          <div class="id">gs up h100</div>
+          <div class="id">gsh up h100</div>
           <div class="alt">Spot only: Google sells this machine no other way</div>
         </div>
       </div>
@@ -750,11 +750,11 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>What's a Spot box?</summary>
-            <p>Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time, with 30 seconds' notice. Whatever is running stops, but the box keeps its disk and files: you get an email, and <code>gs start</code> (or <code>gs ssh</code>) resumes it once a GPU is free again. Save checkpoints often. For work that mustn't be interrupted, pick an on-demand plan: <code>gs up l4-ondemand</code>, <code>gs up a100-ondemand</code>. <code>gs plans</code> lists both.</p>
+            <p>Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time, with 30 seconds' notice. Whatever is running stops, but the box keeps its disk and files: you get an email, and <code>gsh start</code> (or <code>gsh ssh</code>) resumes it once a GPU is free again. Save checkpoints often. For work that mustn't be interrupted, pick an on-demand plan: <code>gsh up l4-ondemand</code>, <code>gsh up a100-ondemand</code>. <code>gsh plans</code> lists both.</p>
           </details>
           <details>
             <summary>Can I use Jupyter or VS Code?</summary>
-            <p>Yes. Connect with plain SSH using the key in <code>~/.gpushed/state/box_ssh_key</code> (the IP is in <code>gs status</code>) and forward a port for Jupyter, or add the box as a host in VS Code Remote-SSH.</p>
+            <p>Yes. Connect with plain SSH using the key in <code>~/.gpushed/state/box_ssh_key</code> (the IP is in <code>gsh status</code>) and forward a port for Jupyter, or add the box as a host in VS Code Remote-SSH.</p>
           </details>
           <details>
             <summary>Does it work on Linux or Windows?</summary>
@@ -772,23 +772,23 @@ name, memory.total [MiB]
         <div>
           <details>
             <summary>Where does it run?</summary>
-            <p>On Google Cloud, in the region nearest you: Iowa, South Carolina or Oregon in the US, the Netherlands, or Singapore. If it's out of GPUs, gpushed tries its other zones and then the next nearest region automatically. Pick one yourself with <code>gs up --region europe-west4</code>. Prices differ a little by region; <code>gs plans</code> shows yours.</p>
+            <p>On Google Cloud, in the region nearest you: Iowa, South Carolina or Oregon in the US, the Netherlands, or Singapore. If it's out of GPUs, gpushed tries its other zones and then the next nearest region automatically. Pick one yourself with <code>gsh up --region europe-west4</code>. Prices differ a little by region; <code>gsh plans</code> shows yours.</p>
           </details>
           <details>
             <summary>What happens when my credit runs out?</summary>
-            <p>You get an email when your balance drops to $2. Just before it reaches zero your box is stopped, with its disk kept. Top up and run <code>gs start</code> to resume. A box that stays unfunded for 24 hours is deleted.</p>
+            <p>You get an email when your balance drops to $2. Just before it reaches zero your box is stopped, with its disk kept. Top up and run <code>gsh start</code> to resume. A box that stays unfunded for 24 hours is deleted.</p>
           </details>
           <details>
             <summary>Can I keep my data between sessions?</summary>
-            <p>Yes. <code>gs stop</code> pauses the GPU and keeps the disk for about $0.03/hour; <code>gs start</code> brings it back. <code>gs down</code> deletes the box and its disk for good. A box whose GPU sits idle, with nothing running on it and nobody connected, for 5 minutes stops itself, so a forgotten box doesn't run up a bill.</p>
+            <p>Yes. <code>gsh stop</code> pauses the GPU and keeps the disk for about $0.03/hour; <code>gsh start</code> brings it back. <code>gsh down</code> deletes the box and its disk for good. A box whose GPU sits idle, with nothing running on it and nobody connected, for 5 minutes stops itself, so a forgotten box doesn't run up a bill.</p>
           </details>
           <details>
             <summary>How is it billed?</summary>
-            <p>Per second, from your prepaid balance, from the moment the box exists until it's deleted. <code>gs history</code> shows every charge and top-up.</p>
+            <p>Per second, from your prepaid balance, from the moment the box exists until it's deleted. <code>gsh history</code> shows every charge and top-up.</p>
           </details>
           <details>
             <summary>Can I run more than one box?</summary>
-            <p>One box per account for now. Delete it with <code>gs down</code> to switch plans.</p>
+            <p>One box per account for now. Delete it with <code>gsh down</code> to switch plans.</p>
           </details>
         </div>
       </div>

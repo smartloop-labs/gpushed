@@ -26,6 +26,11 @@ gpushed cp data/ :   # copy a folder to the box (and :path back)
 gpushed down         # delete it
 ```
 
+`gsh` (gpu shed) is a short alias for `gpushed`: `gsh up`, `gsh ssh`,
+`gsh down`. The installer links it unless another `gsh` is installed. (Up to
+v0.4.0 the alias was `gs`, which is Ghostscript on most Linux systems; an
+existing `gs` link keeps working.)
+
 ## Requirements
 
 - macOS (Intel or Apple silicon) or Linux
