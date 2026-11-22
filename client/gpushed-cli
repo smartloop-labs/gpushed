@@ -1,19 +1,26 @@
 #!/bin/bash
 #
-# gpushed client. Runs inside the gpushed-cli container (started by the
-# `gpushed` command on the Mac); talks to the gpushed API. Accounts are
-# smartloop accounts: `login` signs in to smartloop with an emailed code.
+# gpushed client, run by the `gpushed` command (which sets GPUSHED_STATE and
+# GPUSHED_VERSION); talks to the gpushed API. Accounts are smartloop
+# accounts: `login` signs in to smartloop with an emailed code.
+#
+# Runs on the system bash, which is 3.2 on macOS: no bash 4 features
+# (associative arrays, mapfile, fractional read timeouts, ${x,,}), and
+# expand arrays that may be empty as ${a[@]+"${a[@]}"} (set -u).
 
 set -euo pipefail
 
 API="${GPUSHED_API:-https://api.gpushed.dev}"
 SMARTLOOP_API="${GPUSHED_SMARTLOOP_API:-https://api.smartloop.ai}"
 SIGNUP_URL="${GPUSHED_SIGNUP_URL:-https://app.smartloop.ai/signup}"
-STATE="${GPUSHED_STATE:-/state}"
+STATE="${GPUSHED_STATE:-$HOME/.gpushed/state}"
 TOKEN_FILE="$STATE/token"
 KEY="$STATE/box_ssh_key"
-VERSION="$(cat /etc/gpushed-version 2>/dev/null || echo dev)"
+VERSION="${GPUSHED_VERSION:-dev}"
 SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30)
+# How long to wait for the rest of an arrow key after Esc: bash 3.2 (macOS's
+# /bin/bash) only takes whole seconds.
+if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then ESC_TIMEOUT=0.05; else ESC_TIMEOUT=1; fi
 
 say() { printf '%s\n' "$*"; }
 die() { printf '❌ %s\n' "$*" >&2; exit 1; }
@@ -57,7 +64,7 @@ choose() {
       $'\e')
         # An arrow key is Esc plus two more bytes, sent together; Esc on its
         # own gets nothing more within a moment, and cancels.
-        rest=""; IFS= read -rsn2 -t 0.05 rest || true
+        rest=""; IFS= read -rsn2 -t "$ESC_TIMEOUT" rest || true
         case $rest in
           '[A') i=$(( (i - 1 + n) % n )) ;;
           '[B') i=$(( (i + 1) % n )) ;;
@@ -83,10 +90,13 @@ choose() {
   CHOICE=$i
 }
 
-# Ask the Mac to open a URL in the browser (the `gpushed` wrapper watches for
-# this file); also print it in case that isn't possible.
+# Open a URL in the browser where there is one; always print it too.
 open_url() {
-  printf '%s\n' "$1" > "$STATE/.open-url"
+  if [ "$(uname -s)" = Darwin ]; then
+    open "$1" >/dev/null 2>&1 || true
+  elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$1" >/dev/null 2>&1 &
+  fi
   say "   $1"
 }
 
@@ -103,7 +113,7 @@ api() {
   [ "${NO_AUTH:-0}" = 1 ] || auth=(-H "authorization: Bearer $(token)")
   out=$(mktemp)
   API_STATUS=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "$API$path" \
-    -H "content-type: application/json" -H "user-agent: gpushed-cli/$VERSION" "${auth[@]}" \
+    -H "content-type: application/json" -H "user-agent: gpushed-cli/$VERSION" ${auth[@]+"${auth[@]}"} \
     ${data:+--data "$data"}) || { rm -f "$out"; die "Could not reach $API"; }
   API_BODY=$(cat "$out"); rm -f "$out"
   if [ "$API_STATUS" -ge 400 ] && [[ " ${API_ALLOW:-} " != *" $API_STATUS "* ]]; then
@@ -347,7 +357,7 @@ gpushed $VERSION: GPU boxes on demand, billed from a prepaid balance.
 Account
   login [--email [addr]]   Sign in with your smartloop account in the browser
                            (--email: with an emailed code instead)
-  logout                   Sign out on this Mac
+  logout                   Sign out on this computer
   balance                  Show your balance (alias: me)
   topup [usd]              Add credit with Stripe: \$10, \$25, \$50, \$100 or any amount from \$10
   history                  Recent charges and top-ups
@@ -438,7 +448,7 @@ wake_box() {
   fi
   require_running_box
   [ $woke = 0 ] || wait_for_ssh # just started: sshd may not be up yet
-  [ -f "$KEY" ] || die "This Mac doesn't have the key for your box (~/.gpushed/state/box_ssh_key)."
+  [ -f "$KEY" ] || die "This computer doesn't have the key for your box (~/.gpushed/state/box_ssh_key)."
 }
 
 case "$cmd" in
@@ -555,12 +565,44 @@ case "$cmd" in
     exec ssh "${SSH_OPTS[@]}" -t "$BOX_USER@$BOX_IP" "$@"
     ;;
 
-  box-addr)
-    # Internal, for `gpushed cp` on the Mac: get the box running, then leave
-    # user@ip in the state dir (stdout carries the progress messages).
-    rm -f "$STATE/.box-addr"
+  cp)
+    # rsync between this computer and the box, straight over SSH. Box paths
+    # start with ":" (a bare ":" is the home dir there).
+    cp_usage="Usage: gpushed cp [rsync options] SRC... DEST   (box paths start with \":\")
+  gpushed cp data.csv model/ :          # into your home dir on the box
+  gpushed cp ./dataset :work/           # the folder itself, into ~/work/dataset
+  gpushed cp :work/out/ ./out           # the folder's contents, back here"
+    opts=() paths=()
+    for a in "$@"; do
+      case "$a" in
+        -h | --help) say "$cp_usage"; exit 0 ;;
+        -?*) opts+=("$a") ;;
+        *) paths+=("$a") ;;
+      esac
+    done
+    [ ${#paths[@]} -ge 2 ] || die "$cp_usage"
+    dest="${paths[${#paths[@]}-1]}"
+    srcs=("${paths[@]:0:${#paths[@]}-1}")
+    remote_srcs=0
+    for s in "${srcs[@]}"; do [[ $s == :* ]] && remote_srcs=$((remote_srcs + 1)); done
+    if [[ $dest == :* ]]; then
+      [ $remote_srcs = 0 ] || die "Copy to the box or from it, not both: only DEST or the SRCs start with \":\"."
+      for s in "${srcs[@]}"; do [ -e "$s" ] || die "No such file or folder: $s"; done
+    else
+      [ $remote_srcs = ${#srcs[@]} ] || die "Put \":\" before box paths, e.g. gpushed cp file.txt :  (to the box) or gpushed cp :file.txt .  (from it)"
+    fi
+    command -v rsync >/dev/null 2>&1 || die "gpushed cp needs rsync. Install it with your package manager (macOS has it built in)."
+
     wake_box
-    printf '%s@%s\n' "$BOX_USER" "$BOX_IP" >"$STATE/.box-addr"
+    # ":path" -> "user@ip:path".
+    args=()
+    for p in "${srcs[@]}" "$dest"; do
+      if [[ $p == :* ]]; then args+=("$BOX_USER@$BOX_IP$p"); else args+=("$p"); fi
+    done
+    # rsync splits -e itself: single quotes keep a key path with spaces whole.
+    exec rsync -aP ${opts[@]+"${opts[@]}"} \
+      -e "ssh -i '$KEY' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ServerAliveInterval=30" \
+      "${args[@]}"
     ;;
 
   stop)

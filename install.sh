@@ -4,8 +4,8 @@
 #
 #   curl -fsSL gpushed.dev/install.sh | bash
 #
-# gpushed runs on Macs with Apple silicon and macOS 26+, using Apple's native
-# `container` runtime. Releases are served from Cloudflare R2.
+# gpushed runs on macOS and Linux and needs curl, jq and ssh. Releases are
+# served from Cloudflare R2.
 #
 # Environment:
 #   GPUSHED_VERSION   Release to install, e.g. v0.2.0 (default: latest)
@@ -29,11 +29,10 @@ main() {
   local bin_dir="${GPUSHED_BIN_DIR:-$HOME/.local/bin}"
   local asset="gpushed.tar.gz"
 
-  [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] \
-    || fail "gpushed supports Macs with Apple silicon only (it runs on Apple's native container runtime)."
-  local major
-  major="$(sw_vers -productVersion | cut -d. -f1)"
-  [ "$major" -ge 26 ] || fail "gpushed needs macOS 26 or later (you have $(sw_vers -productVersion))."
+  case "$(uname -s)" in
+    Darwin|Linux) ;;
+    *) fail "gpushed runs on macOS and Linux (this is $(uname -s))." ;;
+  esac
 
   if [ "$version" = "latest" ]; then
     version="$(curl -fsSL "$dl/latest")" || fail "could not look up the latest release"
@@ -51,7 +50,7 @@ main() {
   say "Verifying checksum..."
   local expected actual
   expected="$(awk '{print $1}' "$tmp/$asset.sha256")"
-  actual="$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')"
+  actual="$(sha256 "$tmp/$asset")"
   [ -n "$expected" ] && [ "$expected" = "$actual" ] \
     || fail "checksum mismatch for $asset (expected $expected, got $actual)"
 
@@ -111,7 +110,7 @@ main() {
       ;;
   esac
 
-  # Set up Apple's container runtime and sign in right away when someone is
+  # Check the tools gpushed uses and sign in right away when someone is
   # at the keyboard (stdin is this script when piped from curl, so use the tty).
   if [ "${GPUSHED_NO_INIT:-0}" != 1 ] && { : </dev/tty; } 2>/dev/null; then
     say ""
@@ -123,13 +122,18 @@ main() {
   else
     say ""
     say "Next steps:"
-    say "   gpushed init      # install Apple's container runtime and sign in"
+    say "   gpushed init      # check what gpushed needs and sign in"
     say "   gpushed topup     # add credit (minimum \$10)"
     say "   gpushed up        # create your GPU box"
   fi
 }
 
 say() { printf '%s\n' "$*"; }
+# sha256 FILE: shasum on macOS, sha256sum on Linux (where shasum may be missing).
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
 fail() { printf '❌ %s\n' "$*" >&2; exit 1; }
 
 main "$@"
