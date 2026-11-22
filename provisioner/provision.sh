@@ -128,28 +128,33 @@ offering_zones() {
 
 # Zones Google's capacity advisor rates likely to have a Spot VM of this
 # machine type now (obtainability >= CAPACITY_MIN_SCORE), asking every region
-# at once. Prints nothing if the advisor can't be asked (it is an alpha API
-# that needs Google to enable it for the project; until then, a 403, logged
-# to stderr; it also needs gcloud >= 540 in the image) or for
+# at once. It calls the Compute beta REST API directly (the alpha one, behind
+# `gcloud alpha compute advice capacity`, needs an allowlist grant; beta
+# doesn't, and curl doesn't depend on the image's gcloud version). Prints
+# nothing if the advisor can't be asked (the reason goes to stderr) or for
 # on-demand plans, which it doesn't rate: callers then keep the usual order.
 CAPACITY_MIN_SCORE=${CAPACITY_MIN_SCORE:-0.5}
 capacity_advice() {
   [ "$(jq -r '.spot // false' <<<"$SPEC")" = true ] || return 0
-  local dir region
+  local dir region token body
+  token=$(gcloud auth print-access-token 2>/dev/null) || { echo "… capacity advisor unavailable: no access token" >&2; return 0; }
+  body=$(jq -nc --arg m "$MACHINE" '{size: 1, distributionPolicy: {targetShape: "ANY_SINGLE_ZONE"},
+    instanceProperties: {scheduling: {provisioningModel: "SPOT"}},
+    instanceFlexibilityPolicy: {instanceSelections: {box: {machineTypes: [$m]}}}}')
   dir=$(mktemp -d)
   for region in $REGIONS; do
-    timeout 20 gcloud alpha compute advice capacity --region "$region" \
-      --provisioning-model SPOT --size 1 --target-distribution-shape any-single-zone \
-      --instance-selection-machine-types "$MACHINE" --format json \
-      >"$dir/$region.json" 2>"$dir/$region.err" &
+    curl -sS -m 20 -X POST \
+      "https://compute.googleapis.com/compute/beta/projects/$GCP_PROJECT/regions/$region/advice/capacity" \
+      -H "authorization: Bearer $token" -H "content-type: application/json" --data "$body" \
+      >"$dir/$region.json" 2>/dev/null &
   done
   wait
-  # Say why once, so a missing alpha grant (403) isn't silent.
+  # Per region, for the log: its best obtainability score, or why it has none
+  # (e.g. a 403, or a 400 where the region doesn't offer the machine type).
   for region in $REGIONS; do
-    if [ ! -s "$dir/$region.json" ] && [ -s "$dir/$region.err" ]; then
-      echo "… capacity advisor unavailable: $(grep -m1 -E 'ERROR|HTTPError' "$dir/$region.err" | sed 's/ This command is authenticated.*//' | cut -c1-160)" >&2
-      break
-    fi
+    jq -r --arg r "$region" 'if .error then "… advisor: \($r) error \(.error.code) \(.error.message)"[:160]
+      else ((.recommendations // [])[0].scores.obtainability // empty | "… advisor: \($r) \(.)") end' \
+      "$dir/$region.json" >&2 2>/dev/null || true
   done
   cat "$dir"/*.json 2>/dev/null | jq -r --argjson min "$CAPACITY_MIN_SCORE" '
     (if type == "array" then .[] else . end) | (.recommendations // [])[]
