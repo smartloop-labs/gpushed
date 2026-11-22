@@ -129,7 +129,8 @@ offering_zones() {
 # Zones Google's capacity advisor rates likely to have a Spot VM of this
 # machine type now (obtainability >= CAPACITY_MIN_SCORE), asking every region
 # at once. Prints nothing if the advisor can't be asked (it is an alpha API
-# that needs Google to enable it for the project; until then, a 403) or for
+# that needs Google to enable it for the project; until then, a 403, logged
+# to stderr; it also needs gcloud >= 540 in the image) or for
 # on-demand plans, which it doesn't rate: callers then keep the usual order.
 CAPACITY_MIN_SCORE=${CAPACITY_MIN_SCORE:-0.5}
 capacity_advice() {
@@ -140,9 +141,16 @@ capacity_advice() {
     timeout 20 gcloud alpha compute advice capacity --region "$region" \
       --provisioning-model SPOT --size 1 --target-distribution-shape any-single-zone \
       --instance-selection-machine-types "$MACHINE" --format json \
-      >"$dir/$region.json" 2>/dev/null &
+      >"$dir/$region.json" 2>"$dir/$region.err" &
   done
   wait
+  # Say why once, so a missing alpha grant (403) isn't silent.
+  for region in $REGIONS; do
+    if [ ! -s "$dir/$region.json" ] && [ -s "$dir/$region.err" ]; then
+      echo "… capacity advisor unavailable: $(grep -m1 -E 'ERROR|HTTPError' "$dir/$region.err" | sed 's/ This command is authenticated.*//' | cut -c1-160)" >&2
+      break
+    fi
+  done
   cat "$dir"/*.json 2>/dev/null | jq -r --argjson min "$CAPACITY_MIN_SCORE" '
     (if type == "array" then .[] else . end) | (.recommendations // [])[]
     | select((.scores.obtainability // 0) >= $min) | (.shards // [])[].zone // empty

@@ -5,7 +5,7 @@
 # no credentials: the job's service account and Secret Manager, or the
 # workflow, supply the GCP credentials, R2 keys and API secret at run time.
 # Docker Hub mirror of Google's gcloud image; gcr.io no longer serves old version tags.
-FROM google/cloud-sdk:502.0.0-slim
+FROM google/cloud-sdk:560.0.0-slim
 
 ARG TERRAFORM_VERSION=1.9.8
 ARG TARGETARCH=amd64
