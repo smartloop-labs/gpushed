@@ -147,34 +147,28 @@ MOTDEOF
     rm -f /tmp/starship-install.sh
   fi
 
-  # Minimal two-line prompt in Osaka Jade: GPU, directory, git, slow-command
-  # time, then the input line. Plain text, so no Nerd Font is needed.
+  # Starship's default look in Osaka Jade colors, with the box's GPU where
+  # the default shows the gcloud account:
+  #   ~/llm-finetune on  main [?] on ☁️  L4
   cat > /etc/gpushed/starship.toml << 'STARSHIPEOF'
 "$schema" = "https://starship.rs/config-schema.json"
-# gpushed: a minimal Starship prompt in Omarchy's Osaka Jade colors.
-#   L4 ~/llm-finetune on main ? took 5s
+# gpushed: Starship's default look in Omarchy's Osaka Jade colors.
+#   ~/llm-finetune on  main [?] on ☁️  L4 took 5s
 #   ❯
 # Make your own with ~/.config/starship.toml (it takes precedence over this
 # file), or set GPUSHED_NO_STARSHIP=1 for the plain bash prompt.
 
 palette = "osaka_jade"
 add_newline = true
-format = "$custom$directory$git_branch$git_status$cmd_duration$line_break$character"
+format = "$directory$git_branch$git_status$custom$cmd_duration$line_break$character"
 
 [palettes.osaka_jade]
-slate = "#53685B"
 jade = "#509475"
 mint = "#63b07a"
 teal = "#2DD5B7"
 sand = "#D7C995"
+gold = "#E5C736"
 coral = "#FF5345"
-
-[custom.gpu]
-command = "cut -d, -f1 /run/gpushed-gpu"
-when = "test -s /run/gpushed-gpu"
-shell = ["sh"]
-style = "bold teal"
-format = "[$output]($style) "
 
 [directory]
 style = "bold jade"
@@ -182,17 +176,25 @@ truncation_length = 3
 format = "[$path]($style)[$read_only]($read_only_style) "
 
 [git_branch]
-style = "sand"
-format = "on [$branch]($style) "
+symbol = " "
+style = "bold sand"
+format = "on [$symbol$branch]($style) "
 
 [git_status]
-style = "sand"
-format = "([$all_status$ahead_behind]($style) )"
+style = "bold coral"
+format = '([\[$all_status$ahead_behind\]]($style) )'
+
+[custom.gpu]
+command = "cut -d, -f1 /run/gpushed-gpu"
+when = "test -s /run/gpushed-gpu"
+shell = ["sh"]
+style = "bold teal"
+format = "on [☁️  $output]($style) "
 
 [cmd_duration]
 min_time = 2000
-style = "slate"
-format = "took [$duration]($style)"
+style = "bold gold"
+format = "took [$duration]($style) "
 
 [character]
 success_symbol = "[❯](bold mint)"
