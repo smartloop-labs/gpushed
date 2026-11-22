@@ -126,11 +126,11 @@ in `gpushed status`; it changes after a stop/start).
   the system `python3` stays 3.10), Node.js 24 LTS with npm, Rust stable
   (`rustup`, `cargo`), and `build-essential`, `git`, `cmake`, `tmux`, `htop`
   and `jq`. You have root to add anything else
-- A Starship prompt in Omarchy's Osaka Jade colors (GPU, directory, git,
-  language versions) and a GPU Shed login banner. Its icons need a
-  [Nerd Font](https://www.nerdfonts.com) in *your* terminal, such as Hack Nerd
-  Font (also installed on the box). Use your own `~/.config/starship.toml`, or
-  set `GPUSHED_NO_STARSHIP=1` for the plain prompt
+- A minimal Starship prompt in Omarchy's Osaka Jade colors
+  (`L4 ~/project on main ? took 5s`, then `❯` on its own line) and a GPU Shed
+  login banner. Plain text, so any terminal font works. Use your own
+  `~/.config/starship.toml`, or set `GPUSHED_NO_STARSHIP=1` for the plain
+  bash prompt. Hack Nerd Font is installed on the box too
 - A 100 GB SSD and a public IP; only SSH (port 22) is open
 - Boxes boot from a prebuilt image with all of that baked in, so a new box is
   ready a minute or two after Google Cloud starts it. (If the image is ever

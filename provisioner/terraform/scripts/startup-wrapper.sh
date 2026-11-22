@@ -99,8 +99,8 @@ systemctl daemon-reload
 systemctl enable --now gpushed-idle.timer || echo "WARNING: could not start the idle watcher"
 
 # ---------------------------------------------------------------- shell look
-# The GPU Shed login banner, the Starship prompt in Omarchy's Osaka Jade
-# palette, and Hack Nerd Font. Runs on every boot and skips what's already
+# The GPU Shed login banner, a minimal Starship prompt in Omarchy's Osaka
+# Jade colors, and Hack Nerd Font. Runs on every boot and skips what's already
 # installed; a failed download never fails provisioning.
 # (No dollar-brace expansions here: this file is a Terraform template.)
 gpushed_shell_look() {
@@ -147,93 +147,56 @@ MOTDEOF
     rm -f /tmp/starship-install.sh
   fi
 
-  # Osaka Jade, powerline style: GPU, directory, git, languages, duration.
+  # Minimal two-line prompt in Osaka Jade: GPU, directory, git, slow-command
+  # time, then the input line. Plain text, so no Nerd Font is needed.
   cat > /etc/gpushed/starship.toml << 'STARSHIPEOF'
 "$schema" = "https://starship.rs/config-schema.json"
-# gpushed: Starship in Omarchy's Osaka Jade palette. Make your own with
-# ~/.config/starship.toml (it takes precedence over this file).
+# gpushed: a minimal Starship prompt in Omarchy's Osaka Jade colors.
+#   L4 ~/llm-finetune on main ? took 5s
+#   ❯
+# Make your own with ~/.config/starship.toml (it takes precedence over this
+# file), or set GPUSHED_NO_STARSHIP=1 for the plain bash prompt.
 
 palette = "osaka_jade"
 add_newline = true
-
-format = """
-[](fg:shade)\
-$custom\
-[](fg:shade bg:jade)\
-$directory\
-[](fg:jade bg:slate)\
-$git_branch\
-$git_status\
-[](fg:slate bg:shade)\
-$python\
-$nodejs\
-$rust\
-$cmd_duration\
-[ ](fg:shade)\
-$line_break\
-$character"""
+format = "$custom$directory$git_branch$git_status$cmd_duration$line_break$character"
 
 [palettes.osaka_jade]
-ink = "#111c18"
-shade = "#23372B"
 slate = "#53685B"
 jade = "#509475"
-moss = "#549e6a"
 mint = "#63b07a"
 teal = "#2DD5B7"
-seafoam = "#9eebb3"
 sand = "#D7C995"
-khaki = "#C1C497"
-cream = "#F6F5DD"
 coral = "#FF5345"
-gold = "#E5C736"
 
 [custom.gpu]
-command = "cat /run/gpushed-gpu | cut -d, -f1"
+command = "cut -d, -f1 /run/gpushed-gpu"
 when = "test -s /run/gpushed-gpu"
 shell = ["sh"]
-symbol = "󰢮 "
-style = "fg:teal bg:shade"
-format = "[ $symbol$output ]($style)"
+style = "bold teal"
+format = "[$output]($style) "
 
 [directory]
-style = "fg:ink bg:jade"
-format = "[ $path ]($style)"
+style = "bold jade"
 truncation_length = 3
-truncation_symbol = "…/"
+format = "[$path]($style)[$read_only]($read_only_style) "
 
 [git_branch]
-symbol = ""
-style = "fg:cream bg:slate"
-format = "[ $symbol $branch ]($style)"
+style = "sand"
+format = "on [$branch]($style) "
 
 [git_status]
-style = "fg:gold bg:slate"
-format = "[($all_status$ahead_behind )]($style)"
-
-[python]
-symbol = ""
-style = "fg:seafoam bg:shade"
-format = "[ $symbol ($version )(\\($virtualenv\\) )]($style)"
-
-[nodejs]
-symbol = ""
-style = "fg:seafoam bg:shade"
-format = "[ $symbol ($version) ]($style)"
-
-[rust]
-symbol = ""
-style = "fg:seafoam bg:shade"
-format = "[ $symbol ($version) ]($style)"
+style = "sand"
+format = "([$all_status$ahead_behind]($style) )"
 
 [cmd_duration]
 min_time = 2000
-style = "fg:sand bg:shade"
-format = "[ 󱦟 $duration ]($style)"
+style = "slate"
+format = "took [$duration]($style)"
 
 [character]
-success_symbol = "[❯](bold fg:mint)"
-error_symbol = "[❯](bold fg:coral)"
+success_symbol = "[❯](bold mint)"
+error_symbol = "[❯](bold coral)"
 STARSHIPEOF
   chmod 644 /etc/gpushed/starship.toml
 
