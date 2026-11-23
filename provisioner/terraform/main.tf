@@ -17,7 +17,8 @@ resource "google_compute_instance" "box" {
     initialize_params {
       image = var.image
       size  = 100
-      type  = "pd-ssd"
+      # G4 (RTX PRO 6000) machines take only Hyperdisk.
+      type = startswith(var.machine_type, "g4-") ? "hyperdisk-balanced" : "pd-ssd"
     }
   }
 
@@ -49,8 +50,9 @@ resource "google_compute_instance" "box" {
 
   network_interface {
     subnetwork = data.google_compute_subnetwork.box.self_link
-    # A3 (H100) machines need gVNIC; the others keep the default (VIRTIO_NET).
-    nic_type = startswith(var.machine_type, "a3-") ? "GVNIC" : null
+    # A3 (H100) and G4 (RTX PRO 6000) machines need gVNIC; the others keep the
+    # default (VIRTIO_NET).
+    nic_type = startswith(var.machine_type, "a3-") || startswith(var.machine_type, "g4-") ? "GVNIC" : null
     access_config {} # ephemeral public IPv4
   }
 

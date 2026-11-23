@@ -17,19 +17,26 @@ import { writeFileSync } from "node:fs";
 
 const REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west4", "asia-southeast1", "asia-east1"];
 // Each plan's GPU, by regional metric and by GPU family (whichever GCP uses).
-// Spot GPUs count against their own PREEMPTIBLE_* regional quota.
+// Spot GPUs count against their own PREEMPTIBLE_* regional quota, except
+// where spotInFamily says GCP counts them under the family quota.
 const GPUS = {
   t4: { metric: "NVIDIA_T4_GPUS", family: "NVIDIA_T4" },
   l4: { metric: "NVIDIA_L4_GPUS", family: "NVIDIA_L4" },
   a100: { metric: "NVIDIA_A100_GPUS", family: "NVIDIA_A100" },
+  // No regional metric: GCP counts it only under the RTX PRO 6000 family quota,
+  // Spot and on-demand alike.
+  rtx6000: { metric: "NVIDIA_RTX_PRO_6000_GPUS", family: "NVIDIA_RTX_PRO_6000", spotInFamily: true },
 };
 const PLANS = {
-  ...Object.fromEntries(Object.entries(GPUS).map(([id, g]) => [id, { metric: `PREEMPTIBLE_${g.metric}`, family: "" }])),
-  ...Object.fromEntries(Object.entries(GPUS).map(([id, g]) => [`${id}-ondemand`, g])),
+  ...Object.fromEntries(
+    Object.entries(GPUS).map(([id, g]) => [id, { metric: `PREEMPTIBLE_${g.metric}`, family: g.spotInFamily ? g.family : "" }]),
+  ),
+  ...Object.fromEntries(Object.entries(GPUS).map(([id, g]) => [`${id}-ondemand`, { metric: g.metric, family: g.family }])),
   // Not offered yet (no quota), kept for when GCP grants it.
   "a100-80-ondemand": { metric: "NVIDIA_A100_80GB_GPUS", family: "NVIDIA_A100_80GB" },
   // Spot-only; GCP counts it under the H100 family quota.
   h100: { metric: "NVIDIA_H100_GPUS", family: "NVIDIA_H100" },
+  // skipRegions: ["..."] on a plan leaves those regions out despite quota.
 };
 
 const project = process.argv[2];
@@ -60,9 +67,13 @@ for (const d of (await res.json()).dimensionsInfos ?? []) {
 }
 
 const capacity = {};
-for (const [plan, { metric, family: fam }] of Object.entries(PLANS)) {
+for (const [plan, { metric, family: fam, skipRegions = [] }] of Object.entries(PLANS)) {
   capacity[plan] = {};
   for (const region of REGIONS) {
+    if (skipRegions.includes(region)) {
+      capacity[plan][region] = 0;
+      continue;
+    }
     // The larger of the two: GCP keeps the old metric for some GPUs and the
     // family quota for others, and leaves the other at 0.
     capacity[plan][region] = Math.max(regional[region][metric] ?? 0, (fam && family[fam]?.[region]) || 0);

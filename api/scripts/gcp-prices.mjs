@@ -21,6 +21,7 @@ const PLANS = {
   a100: { family: "A2 Instance", vcpu: 12, ramGb: 85, gpu: "Nvidia Tesla A100 GPU" },
   "a100-80": { family: "A2 Instance", vcpu: 12, ramGb: 170, gpu: "Nvidia Tesla A100 80GB GPU" },
   h100: { family: "A3 Instance", vcpu: 26, ramGb: 234, gpu: "Nvidia H100 80GB GPU" },
+  rtx6000: { family: "G4 Instance", vcpu: 48, ramGb: 180, gpu: "RTX 6000 96GB" },
 };
 
 const COMPUTE = "6F81-5844-456A"; // Compute Engine's service id in the catalog

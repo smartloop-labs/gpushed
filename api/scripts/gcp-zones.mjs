@@ -24,6 +24,7 @@ const PLANS = {
   a100: { machineType: "a2-highgpu-1g", gpuType: "" },
   "a100-80": { machineType: "a2-ultragpu-1g", gpuType: "" },
   h100: { machineType: "a3-highgpu-1g", gpuType: "" },
+  rtx6000: { machineType: "g4-standard-48", gpuType: "" },
 };
 
 const project = process.argv[2];
@@ -50,7 +51,7 @@ for (const [id, plan] of Object.entries(PLANS)) {
   }
   result[id] = {};
   for (const region of REGIONS) {
-    result[id][region] = [...zones].filter((z) => z.replace(/-[a-z]$/, "") === region).sort();
+    result[id][region] = [...zones].filter((z) => z.replace(/-[a-z0-9]+$/, "") === region).sort();
   }
   console.error(`${id}: ${Object.values(result[id]).flat().length} zones`);
 }

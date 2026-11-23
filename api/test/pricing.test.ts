@@ -39,9 +39,9 @@ describe("pricing", () => {
 
   it("prices Spot plans (H100) at GCP's Spot price and -ondemand plans on-demand", () => {
     expect(PLANS.h100.spot).toBe(true);
-    expect(gcpHourlyUsd("h100", "asia-east1")).toBe(REGION_PRICES["asia-east1"].spot.h100);
-    expect(gcpHourlyUsd("h100", "asia-east1")!).toBeLessThan(REGION_PRICES["asia-east1"].plans.h100);
-    expect(planPrice(PLANS.h100, "asia-east1", 20)!.hourlyMicros).toBeCloseTo(9.19e6, -4);
+    expect(gcpHourlyUsd("h100", "us-central1")).toBe(REGION_PRICES["us-central1"].spot.h100);
+    expect(gcpHourlyUsd("h100", "us-central1")!).toBeLessThan(REGION_PRICES["us-central1"].plans.h100);
+    expect(planPrice(PLANS.h100, "us-central1", 20)!.hourlyMicros).toBeCloseTo(7.88e6, -4);
     expect(gcpHourlyUsd("a100-ondemand", "us-central1")).toBe(REGION_PRICES["us-central1"].plans.a100);
   });
 
@@ -76,14 +76,25 @@ describe("pricing", () => {
     expect(capacityKey(PLANS.l4)).toBe("g2-standard-4:spot");
   });
 
-  it("offers H100 only where GCP granted quota (Taiwan)", () => {
+  it("offers H100 only where GCP granted quota", () => {
     expect(PLANS.h100.available).toBe(true);
-    expect(offeredRegions("", "h100").map((r) => r.id)).toEqual(["asia-east1"]);
+    expect(offeredRegions("", "h100").map((r) => r.id).sort()).toEqual(["asia-east1", "asia-southeast1", "europe-west4", "us-central1"]);
   });
 
-  it("$10 buys about four hours of Spot A100, or two on-demand", () => {
+  it("lists RTX PRO 6000, Spot and on-demand, but doesn't offer it yet", () => {
+    for (const id of ["rtx6000", "rtx6000-ondemand"]) {
+      expect(PLANS[id].machineType).toBe("g4-standard-48");
+      expect(PLANS[id].available, id).toBe(false);
+      expect(planPrice(PLANS[id], "us-central1", 20), id).not.toBeNull();
+    }
+    expect(PLANS.rtx6000.spot).toBe(true);
+    expect(gcpHourlyUsd("rtx6000-ondemand", "us-central1")).toBeCloseTo(4.5, 2);
+    expect(gcpHourlyUsd("rtx6000", "us-central1")!).toBeLessThan(gcpHourlyUsd("rtx6000-ondemand", "us-central1")!);
+  });
+
+  it("$10 buys three to four hours of Spot A100, or two on-demand", () => {
     const spot = 10e6 / planPrice(PLANS.a100, "us-central1", 20)!.hourlyMicros;
-    expect(spot).toBeGreaterThan(3.8);
+    expect(spot).toBeGreaterThan(3.5);
     expect(spot).toBeLessThan(4.2);
     const od = 10e6 / planPrice(PLANS["a100-ondemand"], "us-central1", 20)!.hourlyMicros;
     expect(od).toBeGreaterThan(2);
@@ -117,8 +128,8 @@ describe("regions", () => {
     const full = ids(byAvailability(a100, "a100-ondemand", { "us-central1": 4 }, ...chicago));
     expect(full[0]).not.toBe("us-central1");
     expect(full[full.length - 1]).toBe("us-central1");
-    // H100 has one region; it's always tried, full or not.
-    expect(ids(byAvailability(offeredRegions("", "h100"), "h100", { "asia-east1": 30 }, ...chicago))).toEqual(["asia-east1"]);
+    // A full region is still tried, last.
+    expect(ids(byAvailability(offeredRegions("", "h100"), "h100", { "us-central1": 8 }, ...chicago)).at(-1)).toBe("us-central1");
   });
 
   it("leads with the fallback region when the location is unknown", () => {
@@ -131,6 +142,7 @@ describe("regions", () => {
   });
   it("finds a zone's region", () => {
     expect(regionOfZone("europe-west4-b")).toBe("europe-west4");
+    expect(regionOfZone("europe-west4-ai1a")).toBe("europe-west4");
   });
 });
 

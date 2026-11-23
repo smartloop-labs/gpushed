@@ -101,7 +101,7 @@ export function requestLocation(req: Request): { lat?: number; lon?: number; cou
   };
 }
 
-// "us-central1-b" -> "us-central1"
+// "us-central1-b" -> "us-central1"; AI zones too: "europe-west4-ai1a" -> "europe-west4"
 export function regionOfZone(zone: string): string {
-  return zone.replace(/-[a-z]$/, "");
+  return zone.replace(/-[a-z0-9]+$/, "");
 }

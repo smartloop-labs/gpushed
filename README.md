@@ -55,13 +55,15 @@ gpushed plans
 
 | Plan | GPU | Machine | Price / hour (US) |
 |---|---|---|---|
-| `t4` | 1x Tesla T4 16 GB, Spot | n1-standard-8 | $0.50 |
+| `t4` | 1x Tesla T4 16 GB, Spot | n1-standard-8 | $0.53 |
 | `l4` (default) | 1x L4 24 GB, Spot | g2-standard-4 | $0.54 |
-| `a100` | 1x A100 40 GB, Spot | a2-highgpu-1g | $2.53 |
-| `h100` (Spot, Taiwan) | 1x H100 80 GB, Spot | a3-highgpu-1g | $9.19 |
+| `a100` | 1x A100 40 GB, Spot | a2-highgpu-1g | $2.68 |
+| `h100` (Spot only) | 1x H100 80 GB, Spot | a3-highgpu-1g | $7.88 |
 | `t4-ondemand` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4-ondemand` | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100-ondemand` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
+| `rtx6000` (coming soon) | 1x RTX PRO 6000 96 GB, Spot | g4-standard-48 | $2.12 |
+| `rtx6000-ondemand` (coming soon) | 1x RTX PRO 6000 96 GB | g4-standard-48 | $5.43 |
 
 **Spot by default.** `t4`, `l4`, `a100` and `h100` (which GCP sells only as
 Spot) run as GCP **Spot VMs**: 40-45% cheaper, but Google may reclaim
@@ -84,7 +86,8 @@ hours stopped (`STOPPED_MAX_HOURS`), so copy off anything you want to keep.
 **Regions.** Boxes run in us-central1 (Iowa), us-east1 (South Carolina),
 us-west1 (Oregon), europe-west4 (Netherlands), asia-southeast1 (Singapore)
 and asia-east1 (Taiwan); each GPU is offered where we have quota for it
-(H100: Taiwan). A new box goes to a region with GPUs to spare, nearest you
+(H100: Iowa, Netherlands, Singapore and Taiwan; RTX PRO 6000: not yet, pending
+GPU quota and a newer driver in the box image). A new box goes to a region with GPUs to spare, nearest you
 first (from Cloudflare's estimate of where your request comes from), and
 only then to one that looks full. It's billed at the price of the region it
 lands in. Europe is
