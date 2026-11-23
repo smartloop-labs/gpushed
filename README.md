@@ -78,7 +78,8 @@ only its disk is billed.
 
 Prices are GCP's cost (on-demand or Spot, as the plan is) of the machine, its 100 GB
 SSD and IP, plus 20%. A box is billed per second from when it's created until it's deleted. A
-stopped box costs only its disk (about $0.03/hour).
+stopped box costs only its disk (about $0.03/hour), and is deleted after 6
+hours stopped (`STOPPED_MAX_HOURS`), so copy off anything you want to keep.
 
 **Regions.** Boxes run in us-central1 (Iowa), us-east1 (South Carolina),
 us-west1 (Oregon), europe-west4 (Netherlands), asia-southeast1 (Singapore)
@@ -98,7 +99,7 @@ box you need at least one hour of its price in your balance.
 **Running out.** When your balance falls below $2 you get an email. When it's
 nearly used up, your box is **stopped** (its disk is kept) and you get another
 email. Top up and run `gpushed start` to carry on. A box that stays stopped
-with no credit for 24 hours is deleted.
+for 6 hours is deleted, credit or not.
 
 ## Commands
 
@@ -254,7 +255,7 @@ price while running and the disk price while stopped.
    and `smartloop.ai` zones must be in the same Cloudflare account. Downloads
    are likewise on both `dl.gpushed.dev` and `dl.gpushed.smartloop.ai`.
    Pricing knobs (`PREMIUM_PCT`, `MIN_TOPUP_USD`, `LOW_BALANCE_USD`,
-   `STOPPED_GRACE_HOURS`, and `REGIONS` to limit regions) are in
+   `STOPPED_MAX_HOURS`, and `REGIONS` to limit regions) are in
    [`api/wrangler.toml`](api/wrangler.toml). Regions are listed in
    [`api/src/regions.ts`](api/src/regions.ts) (and their subnets in
    `infra/bootstrap`); GCP list prices per plan and region are generated into

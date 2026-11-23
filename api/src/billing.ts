@@ -70,6 +70,24 @@ export function meterRate(box: Pick<Box, "status" | "metered_until" | "stopped_a
   }
 }
 
+// Hours a stopped box is kept before it's deleted, whatever the balance. A
+// box stuck in failed with no money left is deleted after as long.
+export function stoppedMaxHours(env: Env): number {
+  const h = numVar(env.STOPPED_MAX_HOURS, 24);
+  return h > 0 ? h : 24;
+}
+
+// When a stopped box will be deleted for having been stopped too long, or null.
+export function deletesAt(env: Env, box: Pick<Box, "status" | "stopped_at">): number | null {
+  if (box.status !== "stopped" || box.stopped_at == null) return null;
+  return box.stopped_at + Math.round(stoppedMaxHours(env) * 3600);
+}
+
+// The sentence stop emails end with: how long the stopped box's disk is kept.
+export function stoppedKeptText(env: Env): string {
+  return `A box left stopped for ${stoppedMaxHours(env)} hours is deleted with its disk, so copy off anything you need (gpushed cp) or start it again before then.\n`;
+}
+
 export async function getBox(env: Env, id: string): Promise<Box | null> {
   return env.DB.prepare("SELECT * FROM boxes WHERE id = ?1").bind(id).first<Box>();
 }
@@ -183,8 +201,8 @@ export async function recordTopup(env: Env, userId: string, micros: number, ref:
 }
 
 // Cron: bill every box with a live VM, warn users running low, stop boxes
-// whose owner is about to run out, and destroy them once the balance has been
-// at or below zero for the grace period.
+// whose owner is about to run out, and destroy boxes stopped (or unfunded and
+// failed) for STOPPED_MAX_HOURS.
 // After a credited top-up: when it's the account's first, send the gpushed
 // welcome email. A failed send is logged and not retried (the credit is what
 // matters), and a redelivered Stripe event doesn't credit, so never re-sends.
@@ -259,7 +277,7 @@ export async function runMetering(env: Env, now: number): Promise<void> {
         u.email,
         "gpushed: your balance is running low",
         `Your gpushed balance is $${usd(u.balance_micros)}. When it reaches $0 your GPU box is stopped, ` +
-          `and it is deleted ${env.STOPPED_GRACE_HOURS} hours later unless you add credits.\n\n` +
+          `and it is deleted ${stoppedMaxHours(env)} hours later unless you add credits.\n\n` +
           `Add credits with: gpushed topup (or in Billing on app.smartloop.ai)\n`,
       );
       await env.DB.prepare("UPDATE users SET low_balance_warned = 1 WHERE id = ?1").bind(u.id).run();
@@ -272,7 +290,8 @@ export async function runMetering(env: Env, now: number): Promise<void> {
     .bind(now)
     .run();
 
-  const graceSec = numVar(env.STOPPED_GRACE_HOURS, 24) * 3600;
+  const keptHours = stoppedMaxHours(env);
+  const graceSec = Math.round(keptHours * 3600);
   const { results: broke } = await env.DB.prepare(
     `SELECT b.*, u.email AS email, u.balance_micros AS balance_micros, u.exhausted_at AS exhausted_at FROM boxes b JOIN users u ON u.id = b.user_id
        WHERE b.metered_until IS NOT NULL AND u.unlimited = 0 AND (
@@ -292,10 +311,11 @@ export async function runMetering(env: Env, now: number): Promise<void> {
           box.email,
           "gpushed: your GPU box was stopped",
           `Your gpushed balance is nearly used up ($${usd(box.balance_micros)}), so your box ${box.id} has been stopped. Its disk is kept for ` +
-            `${env.STOPPED_GRACE_HOURS} hours; add credits and run \`gpushed start\` to resume it, or it will be deleted.\n`,
+            `${keptHours} hours; add credits and run \`gpushed start\` to resume it, or it will be deleted.\n`,
         );
-      } else if (box.exhausted_at != null && box.exhausted_at <= now - graceSec) {
-        // Stopped (or stuck in failed) with no money for the whole grace period.
+      } else if (box.status === "failed" && box.exhausted_at != null && box.exhausted_at <= now - graceSec) {
+        // Stuck in failed with no money for STOPPED_MAX_HOURS. (A stopped box
+        // is deleted by deleteLongStopped, funded or not.)
         const destroying = await updateBox(env, box, { status: "destroying" }, now);
         await dispatchOrRevert(env, destroying, "down", box.status, now);
       }
@@ -304,6 +324,8 @@ export async function runMetering(env: Env, now: number): Promise<void> {
     }
   }
 
+  await deleteLongStopped(env, now);
+
   await retryStuckProvisions(env, now);
 
   // Catch Spot boxes Google reclaimed without their shutdown hook reaching us.
@@ -311,6 +333,33 @@ export async function runMetering(env: Env, now: number): Promise<void> {
     await maybeReconcile(env, Object.values(PLANS).filter((p) => p.spot).map((p) => p.id), now);
   } catch (e) {
     console.error("queueing a reconcile run failed", e);
+  }
+}
+
+// Delete every box that has been stopped for STOPPED_MAX_HOURS, funded or not
+// (unlimited accounts too): a stopped box still holds a disk and an IP.
+export async function deleteLongStopped(env: Env, now: number): Promise<void> {
+  const max = stoppedMaxHours(env);
+  const { results: old } = await env.DB.prepare(
+    `SELECT b.*, u.email AS email FROM boxes b JOIN users u ON u.id = b.user_id
+       WHERE b.status = 'stopped' AND b.stopped_at IS NOT NULL AND b.stopped_at <= ?1`,
+  )
+    .bind(now - Math.round(max * 3600))
+    .all<Box & { email: string }>();
+  for (const box of old) {
+    try {
+      const destroying = await updateBox(env, box, { status: "destroying" }, now);
+      if (!(await dispatchOrRevert(env, destroying, "down", "stopped", now))) continue;
+      await sendEmail(
+        env,
+        box.email,
+        "gpushed: your stopped GPU box was deleted",
+        `Your box ${box.id} had been stopped for ${max} hours, so it has been deleted with its disk.\n\n` +
+          `Start a new one any time with: gpushed up\n`,
+      );
+    } catch (e) {
+      console.error(`deleting long-stopped ${box.id} failed`, e);
+    }
   }
 }
 

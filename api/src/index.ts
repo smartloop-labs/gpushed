@@ -1,4 +1,4 @@
-import { type Box, type User, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, unreportedReclaims, updateBox, welcomeOnFirstTopup } from "./billing";
+import { type Box, type User, deletesAt, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, unreportedReclaims, stoppedKeptText, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision, sendEmail } from "./external";
 import { DEFAULT_PLAN, PLANS, capacityKey, planPrice, resolvePlan } from "./pricing";
@@ -155,7 +155,7 @@ async function gpusInUse(env: Env, planId: string): Promise<Record<string, numbe
   return Object.fromEntries(results.map((r) => [r.region, Number(r.n)]));
 }
 
-function boxView(box: Box) {
+function boxView(env: Env, box: Box) {
   return {
     id: box.id,
     plan: box.plan,
@@ -171,6 +171,7 @@ function boxView(box: Box) {
     error: box.error,
     progress: box.progress ?? null,
     created_at: box.created_at,
+    deletes_at: deletesAt(env, box), // stopped too long from then on: deleted
   };
 }
 
@@ -378,7 +379,7 @@ route("GET", "/plans", async (req, env) => {
 route("GET", "/me", async (req, env) => {
   const user = await withCredits(env, await authUser(req, env));
   const box = await activeBox(env, user.id);
-  return json({ ...account(env, user), box: box ? boxView(box) : null });
+  return json({ ...account(env, user), box: box ? boxView(env, box) : null });
 });
 
 // Recent ledger rows, newest first. ?kind=topup (or usage, adjust) filters;
@@ -579,14 +580,14 @@ route("POST", "/box", async (req, env) => {
     .bind(box.id, box.user_id, box.plan, box.status, box.region, box.regions, box.ssh_public_key, box.hourly_micros, box.stopped_hourly_micros, now)
     .run();
   await dispatchOrFail(env, box, "up", now);
-  return json({ box: boxView(box) }, 201);
+  return json({ box: boxView(env, box) }, 201);
 });
 
 route("GET", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box; create one with gpushed up");
-  return json({ box: boxView(box), account: account(env, user) });
+  return json({ box: boxView(env, box), account: account(env, user) });
 });
 
 route("POST", "/box/stop", async (req, env) => {
@@ -597,7 +598,7 @@ route("POST", "/box/stop", async (req, env) => {
   const now = nowSec();
   const updated = await updateBox(env, box, { status: "stopping" }, now);
   await dispatchOrFail(env, updated, "stop", now);
-  return json({ box: boxView(updated) });
+  return json({ box: boxView(env, updated) });
 });
 
 route("POST", "/box/start", async (req, env) => {
@@ -612,18 +613,18 @@ route("POST", "/box/start", async (req, env) => {
   const now = nowSec();
   const updated = await updateBox(env, box, { status: "starting" }, now);
   await dispatchOrFail(env, updated, "start", now);
-  return json({ box: boxView(updated) });
+  return json({ box: boxView(env, updated) });
 });
 
 route("DELETE", "/box", async (req, env) => {
   const user = await authUser(req, env);
   const box = await activeBox(env, user.id);
   if (!box) throw new HttpError(404, "you have no box");
-  if (box.status === "destroying") return json({ box: boxView(box) });
+  if (box.status === "destroying") return json({ box: boxView(env, box) });
   const now = nowSec();
   const updated = await updateBox(env, box, { status: "destroying", error: null }, now);
   await dispatchOrFail(env, updated, "down", now);
-  return json({ box: boxView(updated) });
+  return json({ box: boxView(env, updated) });
 });
 
 // ---------------------------------------------------------------- provisioner (Cloud Run job or GitHub Actions)
@@ -695,7 +696,8 @@ route("POST", "/boxes/:id/idle", async (req, env, p) => {
         "gpushed: your idle GPU box was stopped",
         `Your box ${box.id} had nothing running on its GPU and nobody connected for ${idleMinutes(env)} minutes, ` +
           `so it has been stopped to save you money. Its disk and files are kept (billed at the stopped rate).\n\n` +
-          `Resume it with: gpushed start\n`,
+          `Resume it with: gpushed start\n` +
+          stoppedKeptText(env),
       );
     } catch (e) {
       console.error(`idle-stop email for ${box.id} failed`, e);
@@ -732,7 +734,8 @@ async function markReclaimed(env: Env, box: Box, now: number): Promise<void> {
       `Your box ${box.id} runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
         `Its disk and files are kept (billed at the stopped rate); anything that was running was ended.\n\n` +
         `Resume it with: gpushed start (if there's no ${gpu} free right now, try again in a few minutes)\n` +
-        `For work that mustn't be interrupted, use an on-demand plan instead: gpushed up ${PLANS[box.plan]?.gpu ?? "l4"}-ondemand\n`,
+        `For work that mustn't be interrupted, use an on-demand plan instead: gpushed up ${PLANS[box.plan]?.gpu ?? "l4"}-ondemand\n` +
+        stoppedKeptText(env),
     );
   } catch (e) {
     console.error(`reclaimed email for ${box.id} failed`, e);
@@ -884,10 +887,10 @@ route("POST", "/internal/boxes/:id/report", async (req, env, p) => {
     Object.assign(f, { status: "failed", error: String(r.error ?? `${r.action} failed`).slice(0, 500) });
   }
 
-  if (Object.keys(f).length === 0) return json({ box: boxView(box), applied: false });
+  if (Object.keys(f).length === 0) return json({ box: boxView(env, box), applied: false });
   // Bill up to now at the old rate before the status (and so the rate) changes.
   const metered = await meterBox(env, box, now);
   let updated = await updateBox(env, metered, f, now);
   if (updated.status === "destroyed") updated = await updateBox(env, updated, { metered_until: null }, now);
-  return json({ box: boxView(updated), applied: true });
+  return json({ box: boxView(env, updated), applied: true });
 });

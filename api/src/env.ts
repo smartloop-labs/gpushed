@@ -8,7 +8,7 @@ export interface Env {
   PREMIUM_PCT: string; // markup on GCP cost, e.g. "20"
   MIN_TOPUP_USD: string; // e.g. "10"
   LOW_BALANCE_USD: string; // warn at or below this balance
-  STOPPED_GRACE_HOURS: string; // destroy a box stopped for lack of funds after this long
+  STOPPED_MAX_HOURS?: string; // destroy any box stopped this long, funded or not, and an unfunded failed one (default 24)
   IDLE_STOP_MINUTES?: string; // a box with an idle GPU stops itself after this many minutes (0: never)
   PROVISIONER?: string; // "cloudrun": run the Cloud Run job; otherwise ("github") the provision workflow
   CLOUD_RUN_JOB?: string; // projects/<p>/locations/<region>/jobs/gpushed-provisioner

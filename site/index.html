@@ -62,7 +62,7 @@
         { "@type": "Question", "name": "Can I run CUDA on a Mac?", "acceptedAnswer": { "@type": "Answer", "text": "Not locally: Apple silicon has no NVIDIA GPU, and CUDA needs one. gpushed gives your Mac a dedicated NVIDIA GPU in the cloud with CUDA 12.6 preinstalled, one command away, so you can run PyTorch, vLLM, Triton or your own CUDA kernels from your Mac's terminal." } },
         { "@type": "Question", "name": "Which GPU should I pick for fine-tuning an LLM?", "acceptedAnswer": { "@type": "Answer", "text": "For LoRA or QLoRA on 7B-8B models such as Llama, Mistral or Qwen, the L4 (24 GB) is the best value at $0.54/hour on Spot ($0.88 on-demand). Pick the A100 (40 GB) for 13B+ models, longer contexts, bigger batches or full fine-tuning of smaller models." } },
         { "@type": "Question", "name": "Can I use Jupyter or VS Code with the GPU?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Connect with plain SSH using the key gpushed keeps in ~/.gpushed/state, and forward a port for Jupyter, or point VS Code Remote-SSH at the box." } },
-        { "@type": "Question", "name": "How is gpushed billed?", "acceptedAnswer": { "@type": "Answer", "text": "Per second, from a prepaid balance (top up from $10 with Stripe), from the moment the box exists until it is deleted. A stopped box costs only its disk, about $0.03/hour. If your balance runs out, the box is stopped, so you are never billed more than you put in." } },
+        { "@type": "Question", "name": "How is gpushed billed?", "acceptedAnswer": { "@type": "Answer", "text": "Per second, from a prepaid balance (top up from $10 with Stripe), from the moment the box exists until it is deleted. A stopped box costs only its disk, about $0.03/hour, and is deleted after 6 hours stopped. If your balance runs out, the box is stopped, so you are never billed more than you put in." } },
         { "@type": "Question", "name": "What's installed on the GPU box?", "acceptedAnswer": { "@type": "Answer", "text": "Ubuntu 22.04 with the NVIDIA driver and CUDA Toolkit 12.6, plus Python 3.11 (pip and uv), Node.js 24 LTS, Rust, git and build tools, with full root access." } },
         { "@type": "Question", "name": "What is a Spot box?", "acceptedAnswer": { "@type": "Answer", "text": "Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time with 30 seconds' notice. The box is then stopped with its disk and files kept, you get an email, and gpushed start resumes it. For work that mustn't be interrupted, pick an on-demand plan, e.g. gpushed up l4-ondemand." } },
         { "@type": "Question", "name": "Where does gpushed run?", "acceptedAnswer": { "@type": "Answer", "text": "On Google Cloud, in the region nearest you: Iowa, South Carolina or Oregon in the US, the Netherlands, or Singapore. If a region is out of GPUs, gpushed tries the next nearest one automatically." } }
@@ -728,7 +728,7 @@ name, memory.total [MiB]
       </div>
       <div class="billing">
         <div><strong>Add credits from $10</strong>About 4 hours on a Spot A100, or 18 on a Spot L4. They never expire.</div>
-        <div><strong>Stopped boxes</strong>About $0.03/hour for the disk while compute is paused.</div>
+        <div><strong>Stopped boxes</strong>About $0.03/hour for the disk while compute is paused; deleted after 6 hours stopped.</div>
         <div><strong>Running low</strong>Email at $2. Box paused before $0, deleted after 24 h unfunded.</div>
       </div>
     </div>
@@ -776,7 +776,7 @@ name, memory.total [MiB]
           </details>
           <details>
             <summary>What happens when my credit runs out?</summary>
-            <p>You get an email when your balance drops to $2. Just before it reaches zero your box is stopped, with its disk kept. Top up and run <code>gsh start</code> to resume. A box that stays unfunded for 24 hours is deleted.</p>
+            <p>You get an email when your balance drops to $2. Just before it reaches zero your box is stopped, with its disk kept. Top up and run <code>gsh start</code> to resume. Any box left stopped for 6 hours is deleted with its disk.</p>
           </details>
           <details>
             <summary>Can I keep my data between sessions?</summary>
