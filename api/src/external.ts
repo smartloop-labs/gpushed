@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { type Email, renderHtml, renderText } from "./email";
 import { nowSec } from "./util";
 
 export type ProvisionAction = "up" | "down" | "stop" | "start";
@@ -138,7 +139,9 @@ export function resetGoogleTokenCache(): void {
   cachedToken = null;
 }
 
-export async function sendEmail(env: Env, to: string, subject: string, text: string): Promise<void> {
+export async function sendEmail(env: Env, to: string, email: Email): Promise<void> {
+  const { subject } = email;
+  const text = renderText(email);
   if (!env.RESEND_API_KEY) {
     if (env.DEV === "1") {
       console.log(`[dev] email to=${to} subject=${subject}\n${text}`);
@@ -149,7 +152,7 @@ export async function sendEmail(env: Env, to: string, subject: string, text: str
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ from: env.EMAIL_FROM, to, subject, text }),
+    body: JSON.stringify({ from: env.EMAIL_FROM, to, subject, html: renderHtml(email), text }),
   });
   if (!r.ok) throw new Error(`email send failed: ${r.status} ${await r.text()}`);
 }
