@@ -35,7 +35,7 @@ REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src
 PREMIUM_PCT = "20"
 MIN_TOPUP_USD = "10"
 LOW_BALANCE_USD = "2"
-STOPPED_GRACE_HOURS = "24"
+STOPPED_MAX_HOURS = "6" # any box stopped this long is deleted, unlimited accounts too
 IDLE_STOP_MINUTES = "5"
 # Where box provisioning runs: "cloudrun" (the gpushed-provisioner Cloud Run
 # job, CLOUD_RUN_JOB; needs the GCP_DISPATCH_KEY secret) or "github" (the
@@ -74,7 +74,7 @@ REGIONS = "" # GCP regions boxes may run in, comma-separated; empty = all in src
 PREMIUM_PCT = "20"
 MIN_TOPUP_USD = "10"
 LOW_BALANCE_USD = "2"
-STOPPED_GRACE_HOURS = "24"
+STOPPED_MAX_HOURS = "6" # any box stopped this long is deleted, unlimited accounts too
 IDLE_STOP_MINUTES = "5"
 PROVISIONER = "cloudrun" # jobs are queued in D1; with no GCP_DISPATCH_KEY the run is only logged
 CLOUD_RUN_JOB = "projects/dev/locations/us-central1/jobs/gpushed-provisioner"

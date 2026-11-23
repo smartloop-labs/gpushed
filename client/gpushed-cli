@@ -370,7 +370,7 @@ Box
   ssh [cmd...]             SSH into your box, starting it (or creating one) first
   cp SRC... DEST           Copy files to or from your box with rsync; prefix box
                            paths with ":"  (gpushed cp data/ :work/, gpushed cp :out .)
-  stop                     Stop the box; only its disk is billed while stopped
+  stop                     Stop the box; only its disk is billed, and it's deleted after 6 hours stopped
   start                    Start a stopped box
   down                     Delete the box and its disk
 
@@ -550,7 +550,7 @@ case "$cmd" in
     if [ "$API_STATUS" = 404 ]; then
       say "No box. Create one with: gpushed up"
     else
-      jq -r '.box | "📦 Box \(.id)\n   Plan:    \(.plan)  ($\(.hourly_usd)/h running, $\(.stopped_hourly_usd)/h stopped)\n   Status:  \(.status)\n   Region:  \(.region_name) (\(.zone // .region))\n   IP:      \(.ip // "-")" + (if .error then "\n   Error:   \(.error)" else "" end)' <<<"$b"
+      jq -r '.box | "📦 Box \(.id)\n   Plan:    \(.plan)  ($\(.hourly_usd)/h running, $\(.stopped_hourly_usd)/h stopped)\n   Status:  \(.status)\n   Region:  \(.region_name) (\(.zone // .region))\n   IP:      \(.ip // "-")" + (if .error then "\n   Error:   \(.error)" else "" end) + (if .deletes_at then "\n   Deleted: in \(((.deletes_at - now) / 3600 | if . < 0 then 0 else . end * 10 | round) / 10)h unless started again" else "" end)' <<<"$b"
       if [ "$(jq -r .account.unlimited <<<"$b")" = true ]; then
         say "⭐ GPU time: unlimited (Partner)"
       else
@@ -610,6 +610,11 @@ case "$cmd" in
     say "⏸️  Stopping your box..."
     wait_for stopped
     say "✅ Stopped. Start it again with: gpushed start"
+    deletes_at=$(jq -r '.box.deletes_at // empty' <<<"$API_BODY" 2>/dev/null || true)
+    if [ -n "$deletes_at" ]; then
+      say "   It's deleted with its disk if it stays stopped for $(( (deletes_at - $(date +%s) + 1800) / 3600 )) more hours;"
+      say "   copy off what you need first (gpushed cp)."
+    fi
     ;;
 
   start)
