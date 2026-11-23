@@ -1,4 +1,4 @@
-import { type Box, type User, deletesAt, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, unreportedReclaims, stoppedKeptText, updateBox, welcomeOnFirstTopup } from "./billing";
+import { type Box, type User, deletesAt, dispatchOrRevert, getBox, meterBox, recordTopup, refreshBalance, runMetering, unreportedReclaims, stoppedKeptBlock, updateBox, welcomeOnFirstTopup } from "./billing";
 import { type Env, numVar } from "./env";
 import { type ProvisionAction, dispatchProvision, sendEmail } from "./external";
 import { DEFAULT_PLAN, PLANS, capacityKey, planPrice, resolvePlan } from "./pricing";
@@ -690,15 +690,20 @@ route("POST", "/boxes/:id/idle", async (req, env, p) => {
   const owner = await env.DB.prepare("SELECT email FROM users WHERE id = ?1").bind(box.user_id).first<{ email: string }>();
   if (owner) {
     try {
-      await sendEmail(
-        env,
-        owner.email,
-        "gpushed: your idle GPU box was stopped",
-        `Your box ${box.id} had nothing running on its GPU and nobody connected for ${idleMinutes(env)} minutes, ` +
-          `so it has been stopped to save you money. Its disk and files are kept (billed at the stopped rate).\n\n` +
-          `Resume it with: gpushed start\n` +
-          stoppedKeptText(env),
-      );
+      await sendEmail(env, owner.email, {
+        subject: "gpushed: your idle GPU box was stopped",
+        heading: "Your idle GPU box was stopped",
+        blocks: [
+          {
+            p:
+              `Your box \`${box.id}\` had nothing running on its GPU and nobody connected for ${idleMinutes(env)} minutes, ` +
+              "so it has been stopped to save you money. Its disk and files are kept (billed at the stopped rate).",
+          },
+          { p: "Resume it with:" },
+          { cmds: [["gpushed start"]] },
+          stoppedKeptBlock(env),
+        ],
+      });
     } catch (e) {
       console.error(`idle-stop email for ${box.id} failed`, e);
     }
@@ -727,16 +732,24 @@ async function markReclaimed(env: Env, box: Box, now: number): Promise<void> {
   if (!owner) return;
   const gpu = PLANS[box.plan]?.gpu.toUpperCase() ?? box.plan;
   try {
-    await sendEmail(
-      env,
-      owner.email,
-      `gpushed: Google reclaimed your ${gpu} Spot box`,
-      `Your box ${box.id} runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
-        `Its disk and files are kept (billed at the stopped rate); anything that was running was ended.\n\n` +
-        `Resume it with: gpushed start (if there's no ${gpu} free right now, try again in a few minutes)\n` +
-        `For work that mustn't be interrupted, use an on-demand plan instead: gpushed up ${PLANS[box.plan]?.gpu ?? "l4"}-ondemand\n` +
-        stoppedKeptText(env),
-    );
+    await sendEmail(env, owner.email, {
+      subject: `gpushed: Google reclaimed your ${gpu} Spot box`,
+      heading: `Google reclaimed your ${gpu} Spot box`,
+      blocks: [
+        {
+          p:
+            `Your box \`${box.id}\` runs on a Spot VM, and Google needed the GPU back, so it has been stopped. ` +
+            "Its disk and files are kept (billed at the stopped rate); anything that was running was ended.",
+        },
+        {
+          cmds: [
+            ["gpushed start", `resume it (if there's no ${gpu} free right now, try again in a few minutes)`],
+            [`gpushed up ${PLANS[box.plan]?.gpu ?? "l4"}-ondemand`, "an on-demand box, for work that mustn't be interrupted"],
+          ],
+        },
+        stoppedKeptBlock(env),
+      ],
+    });
   } catch (e) {
     console.error(`reclaimed email for ${box.id} failed`, e);
   }

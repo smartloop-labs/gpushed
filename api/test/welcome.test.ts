@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { welcomeOnFirstTopup, welcomeText } from "../src/billing";
+import { welcomeEmail, welcomeOnFirstTopup } from "../src/billing";
+import { renderText } from "../src/email";
 import type { Env } from "../src/env";
 import { createCheckoutSession } from "../src/stripe";
 
@@ -34,6 +35,7 @@ describe("welcomeOnFirstTopup", () => {
     expect(sent.from).toBe("gpushed <noreply@example.com>");
     expect(sent.subject).toMatch(/Welcome to gpushed/);
     expect(sent.text).toContain("$25.00");
+    expect(sent.html).toContain("$25.00");
   });
   it("doesn't email on later top-ups or unknown users", async () => {
     const calls = stubFetch();
@@ -47,7 +49,7 @@ describe("welcomeOnFirstTopup", () => {
     expect(await welcomeOnFirstTopup(envWith({ email: "a@example.com", balance_micros: 1, topups: 1 }), "u1")).toBe(false);
   });
   it("points to the commands and the site", () => {
-    const t = welcomeText(10e6);
+    const t = renderText(welcomeEmail(10e6));
     for (const s of ["gpushed up", "gpushed ssh", "gpushed down", "gpushed topup", "https://gpushed.dev"]) expect(t).toContain(s);
   });
 });

@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { numVar } from "./env";
+import type { Block, Email } from "./email";
 import { dispatchProvision, maybeReconcile, sendEmail } from "./external";
 import { PLANS, chargeMicros } from "./pricing";
 import { type Credits, getCredits, grantCredits, spendCredits } from "./smartloop";
@@ -83,9 +84,11 @@ export function deletesAt(env: Env, box: Pick<Box, "status" | "stopped_at">): nu
   return box.stopped_at + Math.round(stoppedMaxHours(env) * 3600);
 }
 
-// The sentence stop emails end with: how long the stopped box's disk is kept.
-export function stoppedKeptText(env: Env): string {
-  return `A box left stopped for ${stoppedMaxHours(env)} hours is deleted with its disk, so copy off anything you need (gpushed cp) or start it again before then.\n`;
+// What stop emails end with: how long the stopped box's disk is kept.
+export function stoppedKeptBlock(env: Env): Block {
+  return {
+    note: `A box left stopped for ${stoppedMaxHours(env)} hours is deleted with its disk, so copy off anything you need (\`gpushed cp\`) or start it again before then.`,
+  };
 }
 
 export async function getBox(env: Env, id: string): Promise<Box | null> {
@@ -214,7 +217,7 @@ export async function welcomeOnFirstTopup(env: Env, userId: string): Promise<boo
     .first<{ email: string; balance_micros: number; topups: number }>();
   if (!u || u.topups !== 1) return false;
   try {
-    await sendEmail(env, u.email, "Welcome to gpushed: your credit is ready", welcomeText(u.balance_micros));
+    await sendEmail(env, u.email, welcomeEmail(u.balance_micros));
     return true;
   } catch (e) {
     console.error(`welcome email for ${userId} failed`, e);
@@ -222,18 +225,29 @@ export async function welcomeOnFirstTopup(env: Env, userId: string): Promise<boo
   }
 }
 
-export function welcomeText(balanceMicros: number): string {
-  return (
-    `Welcome to gpushed! Your balance is $${usd(balanceMicros)}, so you can start a GPU box now.\n\n` +
-    `  gpushed plans        prices for the A100, L4 and Tesla T4\n` +
-    `  gpushed up           start a box (the L4 by default; gpushed up a100 for the big one)\n` +
-    `  gpushed ssh          connect to it\n` +
-    `  gpushed stop         stop it; you pay only for its disk while it's stopped\n` +
-    `  gpushed down         delete it when you're done\n\n` +
-    `Boxes boot with the NVIDIA driver, CUDA, Python and dev tools ready, and are billed per second ` +
-    `from your balance. We email you when it runs low; add credits any time with: gpushed topup. Your smartloop plan credits are spent first.\n\n` +
-    `Docs and FAQ: https://gpushed.dev\n`
-  );
+export function welcomeEmail(balanceMicros: number): Email {
+  return {
+    subject: "Welcome to gpushed: your credit is ready",
+    heading: "Welcome to gpushed",
+    blocks: [
+      { p: `Your balance is $${usd(balanceMicros)}, so you can start a GPU box now.` },
+      {
+        cmds: [
+          ["gpushed plans", "prices for the A100, L4 and Tesla T4"],
+          ["gpushed up", "start a box (the L4 by default; gpushed up a100 for the big one)"],
+          ["gpushed ssh", "connect to it"],
+          ["gpushed stop", "stop it; you pay only for its disk while it's stopped"],
+          ["gpushed down", "delete it when you're done"],
+        ],
+      },
+      {
+        p:
+          "Boxes boot with the NVIDIA driver, CUDA, Python and dev tools ready, and are billed per second from your balance. " +
+          "We email you when it runs low; add credits any time with `gpushed topup`. Your smartloop plan credits are spent first.",
+      },
+      { note: "Docs and FAQ: https://gpushed.dev" },
+    ],
+  };
 }
 
 export async function runMetering(env: Env, now: number): Promise<void> {
@@ -272,14 +286,19 @@ export async function runMetering(env: Env, now: number): Promise<void> {
   for (const u of low) {
     if (!fresh.has(u.id)) continue;
     try {
-      await sendEmail(
-        env,
-        u.email,
-        "gpushed: your balance is running low",
-        `Your gpushed balance is $${usd(u.balance_micros)}. When it reaches $0 your GPU box is stopped, ` +
-          `and it is deleted ${stoppedMaxHours(env)} hours later unless you add credits.\n\n` +
-          `Add credits with: gpushed topup (or in Billing on app.smartloop.ai)\n`,
-      );
+      await sendEmail(env, u.email, {
+        subject: "gpushed: your balance is running low",
+        heading: `Your balance is $${usd(u.balance_micros)}`,
+        blocks: [
+          {
+            p:
+              `When it reaches $0 your GPU box is stopped, and it is deleted ${stoppedMaxHours(env)} hours later ` +
+              "unless you add credits.",
+          },
+          { cmds: [["gpushed topup"]] },
+          { note: "Or add credits in Billing on https://app.smartloop.ai" },
+        ],
+      });
       await env.DB.prepare("UPDATE users SET low_balance_warned = 1 WHERE id = ?1").bind(u.id).run();
     } catch (e) {
       console.error(`low-balance warning for ${u.id} failed`, e);
@@ -306,13 +325,18 @@ export async function runMetering(env: Env, now: number): Promise<void> {
       if (box.status === "running") {
         const stopping = await updateBox(env, box, { status: "stopping" }, now);
         if (!(await dispatchOrRevert(env, stopping, "stop", "running", now))) continue;
-        await sendEmail(
-          env,
-          box.email,
-          "gpushed: your GPU box was stopped",
-          `Your gpushed balance is nearly used up ($${usd(box.balance_micros)}), so your box ${box.id} has been stopped. Its disk is kept for ` +
-            `${keptHours} hours; add credits and run \`gpushed start\` to resume it, or it will be deleted.\n`,
-        );
+        await sendEmail(env, box.email, {
+          subject: "gpushed: your GPU box was stopped",
+          heading: "Your GPU box was stopped",
+          blocks: [
+            {
+              p:
+                `Your balance is nearly used up ($${usd(box.balance_micros)}), so your box \`${box.id}\` has been stopped. ` +
+                `Its disk is kept for ${keptHours} hours; add credits and start it again to carry on, or it will be deleted.`,
+            },
+            { cmds: [["gpushed topup"], ["gpushed start"]] },
+          ],
+        });
       } else if (box.status === "failed" && box.exhausted_at != null && box.exhausted_at <= now - graceSec) {
         // Stuck in failed with no money for STOPPED_MAX_HOURS. (A stopped box
         // is deleted by deleteLongStopped, funded or not.)
@@ -350,13 +374,15 @@ export async function deleteLongStopped(env: Env, now: number): Promise<void> {
     try {
       const destroying = await updateBox(env, box, { status: "destroying" }, now);
       if (!(await dispatchOrRevert(env, destroying, "down", "stopped", now))) continue;
-      await sendEmail(
-        env,
-        box.email,
-        "gpushed: your stopped GPU box was deleted",
-        `Your box ${box.id} had been stopped for ${max} hours, so it has been deleted with its disk.\n\n` +
-          `Start a new one any time with: gpushed up\n`,
-      );
+      await sendEmail(env, box.email, {
+        subject: "gpushed: your stopped GPU box was deleted",
+        heading: "Your stopped GPU box was deleted",
+        blocks: [
+          { p: `Your box \`${box.id}\` had been stopped for ${max} hours, so it has been deleted with its disk.` },
+          { p: "Start a new one any time:" },
+          { cmds: [["gpushed up"]] },
+        ],
+      });
     } catch (e) {
       console.error(`deleting long-stopped ${box.id} failed`, e);
     }
