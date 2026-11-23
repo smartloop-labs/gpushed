@@ -15,7 +15,7 @@ export interface Plan {
   gpu: string;
   label: string;
   machineType: string;
-  gpuType: string; // "" when the machine type has the GPU built in (A2, G2)
+  gpuType: string; // "" when the machine type has the GPU built in (A2, A3, G2, G4)
   gpuCount: number;
   // False while GCP hasn't granted us quota for it: listed in `gpushed plans`
   // with its price, but a box can't be created on it yet.
@@ -55,6 +55,17 @@ const MACHINES: Omit<Plan, "id" | "spot">[] = [
     gpuCount: 0,
     available: true,
   },
+  {
+    gpu: "rtx6000",
+    label: "1x NVIDIA RTX PRO 6000 96 GB, 48 vCPU, 180 GB RAM",
+    machineType: "g4-standard-48",
+    gpuType: "",
+    gpuCount: 0,
+    // Not until GCP grants NVIDIA_RTX_PRO_6000 family quota (0 in our project),
+    // and the box image has an R580 driver (580.95.05 or later; it has 535,
+    // which doesn't know Blackwell). Rerun scripts/gcp-quotas.mjs then.
+    available: false,
+  },
 ];
 
 const SPOT: Plan[] = MACHINES.map((m) => ({ ...m, id: m.gpu, spot: true }));
@@ -65,8 +76,8 @@ export const PLANS: Record<string, Plan> = Object.fromEntries(
     ...SPOT,
     // GCP creates a3-highgpu-1g (and -2g, -4g) only as Spot or Flex-start, never
     // on-demand, so there's no "h100-ondemand".
-    // Offered in asia-east1 only, where the H100 family quota is granted
-    // (capacity.generated.ts).
+    // Offered where the H100 family quota is granted, except Taiwan
+    // (scripts/gcp-quotas.mjs, capacity.generated.ts).
     {
       id: "h100",
       gpu: "h100",
