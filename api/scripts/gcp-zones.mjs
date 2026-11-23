@@ -51,7 +51,7 @@ for (const [id, plan] of Object.entries(PLANS)) {
   }
   result[id] = {};
   for (const region of REGIONS) {
-    result[id][region] = [...zones].filter((z) => z.replace(/-[a-z]$/, "") === region).sort();
+    result[id][region] = [...zones].filter((z) => z.replace(/-[a-z0-9]+$/, "") === region).sort();
   }
   console.error(`${id}: ${Object.values(result[id]).flat().length} zones`);
 }

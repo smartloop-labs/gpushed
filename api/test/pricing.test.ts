@@ -76,9 +76,9 @@ describe("pricing", () => {
     expect(capacityKey(PLANS.l4)).toBe("g2-standard-4:spot");
   });
 
-  it("offers H100 where GCP granted quota, but not in Taiwan", () => {
+  it("offers H100 only where GCP granted quota", () => {
     expect(PLANS.h100.available).toBe(true);
-    expect(offeredRegions("", "h100").map((r) => r.id).sort()).toEqual(["asia-southeast1", "europe-west4", "us-central1"]);
+    expect(offeredRegions("", "h100").map((r) => r.id).sort()).toEqual(["asia-east1", "asia-southeast1", "europe-west4", "us-central1"]);
   });
 
   it("lists RTX PRO 6000, Spot and on-demand, but doesn't offer it yet", () => {
@@ -142,6 +142,7 @@ describe("regions", () => {
   });
   it("finds a zone's region", () => {
     expect(regionOfZone("europe-west4-b")).toBe("europe-west4");
+    expect(regionOfZone("europe-west4-ai1a")).toBe("europe-west4");
   });
 });
 

@@ -163,7 +163,7 @@ capacity_advice() {
   rm -rf "$dir"
 }
 
-region_of() { sed -E 's/-[a-z]$//' <<<"$1"; } # us-central1-b -> us-central1
+region_of() { sed -E 's/-[a-z0-9]+$//' <<<"$1"; } # us-central1-b -> us-central1, europe-west4-ai1a -> europe-west4
 
 tf_vars() { # ZONE -> TF_VARS
   local r; r=$(region_of "$1")
@@ -226,7 +226,7 @@ case "$ACTION" in
     [ -z "$LIKELY" ] || echo "… Google rates these zones likely to have the $GPU_NAME free: $(echo $LIKELY)"
     FRESH=() STALE=() REST=()
     for region in $REGIONS; do
-      for z in $(grep "^$region-[a-z]$" <<<"$OFFERING" | shuf); do
+      for z in $(grep -E "^$region-[a-z0-9]+$" <<<"$OFFERING" | shuf); do
         if [[ $AVOID == *" $z "* ]]; then STALE+=("$z")
         elif [ -z "$LIKELY" ] || grep -qx "$z" <<<"$LIKELY"; then FRESH+=("$z")
         else REST+=("$z"); fi

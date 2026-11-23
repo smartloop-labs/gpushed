@@ -86,7 +86,7 @@ hours stopped (`STOPPED_MAX_HOURS`), so copy off anything you want to keep.
 **Regions.** Boxes run in us-central1 (Iowa), us-east1 (South Carolina),
 us-west1 (Oregon), europe-west4 (Netherlands), asia-southeast1 (Singapore)
 and asia-east1 (Taiwan); each GPU is offered where we have quota for it
-(H100: Iowa, Netherlands and Singapore; RTX PRO 6000: not yet, pending
+(H100: Iowa, Netherlands, Singapore and Taiwan; RTX PRO 6000: not yet, pending
 GPU quota and a newer driver in the box image). A new box goes to a region with GPUs to spare, nearest you
 first (from Cloudflare's estimate of where your request comes from), and
 only then to one that looks full. It's billed at the price of the region it

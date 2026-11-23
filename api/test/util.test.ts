@@ -26,7 +26,7 @@ describe("normalizeUserCode", () => {
 
 describe("isZone", () => {
   it("accepts GCE zone names", () => {
-    for (const z of ["us-west1-a", "us-central1-f", "europe-west4-b", "asia-southeast1-c"]) expect(isZone(z)).toBe(true);
+    for (const z of ["us-west1-a", "us-central1-f", "europe-west4-b", "asia-southeast1-c", "europe-west4-ai1a"]) expect(isZone(z)).toBe(true);
   });
 
   it("rejects anything else", () => {

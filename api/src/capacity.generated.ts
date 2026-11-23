@@ -79,6 +79,6 @@ export const PLAN_CAPACITY: Record<string, Record<string, number>> = {
     "us-west1": 0,
     "europe-west4": 8,
     "asia-southeast1": 8,
-    "asia-east1": 0
+    "asia-east1": 30
   }
 };

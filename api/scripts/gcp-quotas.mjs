@@ -34,10 +34,9 @@ const PLANS = {
   ...Object.fromEntries(Object.entries(GPUS).map(([id, g]) => [`${id}-ondemand`, { metric: g.metric, family: g.family }])),
   // Not offered yet (no quota), kept for when GCP grants it.
   "a100-80-ondemand": { metric: "NVIDIA_A100_80GB_GPUS", family: "NVIDIA_A100_80GB" },
-  // Spot-only; GCP counts it under the H100 family quota. Not offered in
-  // Taiwan, though we have quota there: Iowa, the Netherlands and Singapore
-  // are cheaper and nearer most users.
-  h100: { metric: "NVIDIA_H100_GPUS", family: "NVIDIA_H100", skipRegions: ["asia-east1"] },
+  // Spot-only; GCP counts it under the H100 family quota.
+  h100: { metric: "NVIDIA_H100_GPUS", family: "NVIDIA_H100" },
+  // skipRegions: ["..."] on a plan leaves those regions out despite quota.
 };
 
 const project = process.argv[2];

@@ -76,8 +76,7 @@ export const PLANS: Record<string, Plan> = Object.fromEntries(
     ...SPOT,
     // GCP creates a3-highgpu-1g (and -2g, -4g) only as Spot or Flex-start, never
     // on-demand, so there's no "h100-ondemand".
-    // Offered where the H100 family quota is granted, except Taiwan
-    // (scripts/gcp-quotas.mjs, capacity.generated.ts).
+    // Offered where the H100 family quota is granted (capacity.generated.ts).
     {
       id: "h100",
       gpu: "h100",
