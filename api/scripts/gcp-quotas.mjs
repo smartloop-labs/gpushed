@@ -10,7 +10,8 @@
 //
 // Needs `gcloud` signed in. Reads quota only; changes nothing. T4, L4 and
 // A100 quota is per region (NVIDIA_*_GPUS); H100 and newer GPUs are under
-// GPUS_PER_GPU_FAMILY in the Cloud Quotas API.
+// GPUS_PER_GPU_FAMILY in the Cloud Quotas API; TPU v6e under its own quota ID
+// there, counted in chips.
 // Keep REGIONS in step with src/regions.ts, and PLANS with src/pricing.ts.
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -36,6 +37,11 @@ const PLANS = {
   "a100-80-ondemand": { metric: "NVIDIA_A100_80GB_GPUS", family: "NVIDIA_A100_80GB" },
   // Spot-only; GCP counts it under the H100 family quota.
   h100: { metric: "NVIDIA_H100_GPUS", family: "NVIDIA_H100" },
+  // TPU v6e, Spot only: quota is TPU chips under a Cloud Quotas quota ID
+  // (no regional metric), so a plan's capacity is that many boxes' worth.
+  v6e: { quotaId: "PREEMPTIBLE-TPU-V6E-per-project-region", chips: 1 },
+  "v6e-4": { quotaId: "PREEMPTIBLE-TPU-V6E-per-project-region", chips: 4 },
+  "v6e-8": { quotaId: "PREEMPTIBLE-TPU-V6E-per-project-region", chips: 8 },
   // skipRegions: ["..."] on a plan leaves those regions out despite quota.
 };
 
@@ -66,12 +72,31 @@ for (const d of (await res.json()).dimensionsInfos ?? []) {
   if (region && fam) (family[fam] ??= {})[region] = Number(d.details?.value ?? 0);
 }
 
+// Quotas looked up by quota ID (TPUs), per region; a region with no value of
+// its own has the quota's default (the dimension without a region).
+const byQuotaId = {};
+for (const id of new Set(Object.values(PLANS).map((p) => p.quotaId).filter(Boolean))) {
+  const r = await fetch(
+    `https://cloudquotas.googleapis.com/v1/projects/${project}/locations/global/services/compute.googleapis.com/quotaInfos/${id}`,
+    { headers: { authorization: `Bearer ${token}`, "x-goog-user-project": project } },
+  );
+  if (!r.ok) throw new Error(`Cloud Quotas API (${id}): HTTP ${r.status} ${await r.text()}`);
+  const values = {};
+  for (const d of (await r.json()).dimensionsInfos ?? []) values[d.dimensions?.region ?? ""] = Number(d.details?.value ?? 0);
+  byQuotaId[id] = values;
+}
+
 const capacity = {};
-for (const [plan, { metric, family: fam, skipRegions = [] }] of Object.entries(PLANS)) {
+for (const [plan, { metric, family: fam, quotaId, chips = 1, skipRegions = [] }] of Object.entries(PLANS)) {
   capacity[plan] = {};
   for (const region of REGIONS) {
     if (skipRegions.includes(region)) {
       capacity[plan][region] = 0;
+      continue;
+    }
+    if (quotaId) {
+      const q = byQuotaId[quotaId];
+      capacity[plan][region] = Math.floor((q[region] ?? q[""] ?? 0) / chips);
       continue;
     }
     // The larger of the two: GCP keeps the old metric for some GPUs and the

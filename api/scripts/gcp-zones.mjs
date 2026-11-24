@@ -25,6 +25,9 @@ const PLANS = {
   "a100-80": { machineType: "a2-ultragpu-1g", gpuType: "" },
   h100: { machineType: "a3-highgpu-1g", gpuType: "" },
   rtx6000: { machineType: "g4-standard-48", gpuType: "" },
+  v6e: { machineType: "ct6e-standard-1t", gpuType: "" },
+  "v6e-4": { machineType: "ct6e-standard-4t", gpuType: "" },
+  "v6e-8": { machineType: "ct6e-standard-8t", gpuType: "" },
 };
 
 const project = process.argv[2];

@@ -59,20 +59,32 @@ gpushed plans
 | `l4` (default) | 1x L4 24 GB, Spot | g2-standard-4 | $0.54 |
 | `a100` | 1x A100 40 GB, Spot | a2-highgpu-1g | $2.68 |
 | `h100` (Spot only) | 1x H100 80 GB, Spot | a3-highgpu-1g | $7.88 |
+| `v6e` (Spot only) | 1x Google TPU v6e 32 GB, Spot | ct6e-standard-1t | $0.80 |
+| `v6e-4` (Spot only) | 4x Google TPU v6e 128 GB, Spot | ct6e-standard-4t | $3.09 |
+| `v6e-8` (Spot only) | 8x Google TPU v6e 256 GB, Spot | ct6e-standard-8t | $6.14 |
 | `t4-ondemand` | 1x Tesla T4 16 GB | n1-standard-8 | $0.91 |
 | `l4-ondemand` | 1x L4 24 GB | g2-standard-4 | $0.88 |
 | `a100-ondemand` | 1x A100 40 GB | a2-highgpu-1g | $4.44 |
 | `rtx6000` (coming soon) | 1x RTX PRO 6000 96 GB, Spot | g4-standard-48 | $2.12 |
 | `rtx6000-ondemand` (coming soon) | 1x RTX PRO 6000 96 GB | g4-standard-48 | $5.43 |
 
-**Spot by default.** `t4`, `l4`, `a100` and `h100` (which GCP sells only as
-Spot) run as GCP **Spot VMs**: 40-45% cheaper, but Google may reclaim
+**Spot by default.** `t4`, `l4`, `a100`, and `h100` and the `v6e` plans (which
+GCP sells us only as Spot) run as GCP **Spot VMs**: 40-45% cheaper, but Google may reclaim
 one at any time, with 30 seconds' notice. The box is then stopped with its
 disk kept (whatever was running ends), you get an email, and `gpushed start`
 (or `gpushed ssh`) resumes it once a GPU is free in its zone, which can take a
 while when GPUs are scarce. Save your work and checkpoints often. For work that
 mustn't be interrupted, use the on-demand plan of the same GPU: `gpushed up l4-ondemand`.
 (`l4-spot` and the like, the Spot plans' names in v0.3.14, still work.)
+
+**TPU plans.** `v6e`, `v6e-4` and `v6e-8` are Google TPU v6e (Trillium)
+boxes, not NVIDIA GPUs: there's no CUDA. They boot Canonical's Ubuntu 22.04
+TPU image with Python 3.11, Node.js and Rust; the TPU runtime comes with
+your framework: `pip install "jax[tpu]"`, PyTorch/XLA (`torch_xla[tpu]`) or
+vLLM's TPU build. One v6e chip (32 GB HBM, 918 bf16 TFLOPS) is priced well
+under a Spot A100. A new TPU box takes longer to get ready than a GPU box (it
+installs the dev tools on first boot). The idle watcher sees a TPU as busy
+while a program holds it open.
 
 If a reclaimed box can't tell gpushed in time, the provisioner's check of all
 box VMs (every 15 minutes while Spot boxes run) finds it, and from then on
@@ -86,7 +98,8 @@ hours stopped (`STOPPED_MAX_HOURS`), so copy off anything you want to keep.
 **Regions.** Boxes run in us-central1 (Iowa), us-east1 (South Carolina),
 us-west1 (Oregon), europe-west4 (Netherlands), asia-southeast1 (Singapore)
 and asia-east1 (Taiwan); each GPU is offered where we have quota for it
-(H100: Iowa, Netherlands, Singapore and Taiwan; RTX PRO 6000: not yet, pending
+(H100: Iowa, Netherlands, Singapore and Taiwan; TPU v6e: everywhere but
+Taiwan, cheapest in Singapore and the US; RTX PRO 6000: not yet, pending
 GPU quota and a newer driver in the box image). A new box goes to a region with GPUs to spare, nearest you
 first (from Cloudflare's estimate of where your request comes from), and
 only then to one that looks full. It's billed at the price of the region it

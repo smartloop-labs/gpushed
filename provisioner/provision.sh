@@ -84,6 +84,7 @@ MACHINE=$(jq -r .machine_type <<<"$SPEC")
 GPU_TYPE=$(jq -r .gpu_type <<<"$SPEC")
 GPU_COUNT=$(jq -r .gpu_count <<<"$SPEC")
 GPU_NAME=$(jq -r '.plan // "gpu"' <<<"$SPEC" | tr '[:lower:]' '[:upper:]') # l4 -> L4
+[[ $MACHINE != ct* ]] || GPU_NAME="TPU $(jq -r '.plan // "tpu"' <<<"$SPEC")" # v6e-4 -> TPU v6e-4
 AVOID=" $(jq -r '(.avoid_zones // []) | join(" ")' <<<"$SPEC") "
 KNOWN_ZONES=$(jq -r '(.zones // [])[]' <<<"$SPEC") # from the API's zone table
 
@@ -207,9 +208,17 @@ outputs_and_report() {
 
 case "$ACTION" in
   up)
-    # Boot from the newest prebuilt image (image/build.sh) when there is one:
-    # the box is ready in a minute or two instead of installing for 10-15.
-    if IMAGE=$(gcloud compute images describe-from-family gpushed-cuda --project "$GCP_PROJECT" \
+    # A TPU box (ct* machine types) boots Canonical's Ubuntu 22.04 TPU image,
+    # which has the kernel side of the TPU set up; no NVIDIA driver or CUDA.
+    # Its dev tools install on first boot (setup.sh). A GPU box boots the
+    # newest prebuilt image (image/build.sh) when there is one: it's ready in
+    # a minute or two instead of installing for 10-15.
+    if [[ $MACHINE == ct* ]]; then
+      IMAGE=$(gcloud compute images describe-from-family ubuntu-accel-2204-amd64-tpu-v5e-v5p-v6e \
+        --project ubuntu-os-accelerator-images --format="value(selfLink)")
+      echo "… TPU image ${IMAGE##*/}"
+      echo "{\"image\": \"$IMAGE\"}" > image.auto.tfvars.json
+    elif IMAGE=$(gcloud compute images describe-from-family gpushed-cuda --project "$GCP_PROJECT" \
          --format="value(selfLink)" 2>/dev/null) && [ -n "$IMAGE" ]; then
       echo "… image ${IMAGE##*/}"
       echo "{\"image\": \"$IMAGE\"}" > image.auto.tfvars.json
