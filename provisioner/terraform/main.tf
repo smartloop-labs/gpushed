@@ -17,8 +17,8 @@ resource "google_compute_instance" "box" {
     initialize_params {
       image = var.image
       size  = 100
-      # G4 (RTX PRO 6000) machines take only Hyperdisk.
-      type = startswith(var.machine_type, "g4-") ? "hyperdisk-balanced" : "pd-ssd"
+      # G4 (RTX PRO 6000) and TPU v6e (ct6e) machines take only Hyperdisk.
+      type = startswith(var.machine_type, "g4-") || startswith(var.machine_type, "ct6e-") ? "hyperdisk-balanced" : "pd-ssd"
     }
   }
 
@@ -41,7 +41,8 @@ resource "google_compute_instance" "box" {
     instance_termination_action = var.spot ? "STOP" : null
   }
 
-  # Secure Boot off so the NVIDIA kernel module loads.
+  # Secure Boot off so the NVIDIA kernel module loads (TPU boxes don't need
+  # it off, but it does them no harm).
   shielded_instance_config {
     enable_secure_boot          = false
     enable_vtpm                 = true
@@ -50,9 +51,9 @@ resource "google_compute_instance" "box" {
 
   network_interface {
     subnetwork = data.google_compute_subnetwork.box.self_link
-    # A3 (H100) and G4 (RTX PRO 6000) machines need gVNIC; the others keep the
-    # default (VIRTIO_NET).
-    nic_type = startswith(var.machine_type, "a3-") || startswith(var.machine_type, "g4-") ? "GVNIC" : null
+    # A3 (H100), G4 (RTX PRO 6000) and TPU v6e (ct6e) machines need gVNIC;
+    # the others keep the default (VIRTIO_NET).
+    nic_type = startswith(var.machine_type, "a3-") || startswith(var.machine_type, "g4-") || startswith(var.machine_type, "ct6e-") ? "GVNIC" : null
     access_config {} # ephemeral public IPv4
   }
 

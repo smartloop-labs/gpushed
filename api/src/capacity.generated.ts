@@ -80,5 +80,29 @@ export const PLAN_CAPACITY: Record<string, Record<string, number>> = {
     "europe-west4": 8,
     "asia-southeast1": 8,
     "asia-east1": 30
+  },
+  "v6e": {
+    "us-central1": 1536,
+    "us-east1": 1536,
+    "us-west1": 1536,
+    "europe-west4": 1536,
+    "asia-southeast1": 1536,
+    "asia-east1": 1536
+  },
+  "v6e-4": {
+    "us-central1": 384,
+    "us-east1": 384,
+    "us-west1": 384,
+    "europe-west4": 384,
+    "asia-southeast1": 384,
+    "asia-east1": 384
+  },
+  "v6e-8": {
+    "us-central1": 192,
+    "us-east1": 192,
+    "us-west1": 192,
+    "europe-west4": 192,
+    "asia-southeast1": 192,
+    "asia-east1": 192
   }
 };

@@ -24,6 +24,9 @@ export interface Plan {
   // A reclaimed box is stopped with its disk kept (Terraform's
   // instance_termination_action), and its shutdown hook tells the API.
   spot?: boolean;
+  // A Google TPU instead of an NVIDIA GPU: no CUDA; the box boots Canonical's
+  // TPU image and users run JAX, PyTorch/XLA or vLLM's TPU backend.
+  tpu?: boolean;
 }
 
 // The machines on offer, by GPU. Each is a Spot plan under the GPU's own name
@@ -87,6 +90,25 @@ export const PLANS: Record<string, Plan> = Object.fromEntries(
       available: true,
       spot: true,
     },
+    // Google TPU v6e (Trillium), as Compute Engine ct6e machine types: 32 GB
+    // of HBM per chip, host CPU and RAM included in the per-chip price. Spot
+    // only: our project has Spot v6e quota (PREEMPTIBLE-TPU-V6E) but GCP has
+    // no on-demand v6e quota for Compute Engine.
+    ...[
+      { gpu: "v6e", chips: 1, vcpu: 44, ramGb: 176 },
+      { gpu: "v6e-4", chips: 4, vcpu: 180, ramGb: 720 },
+      { gpu: "v6e-8", chips: 8, vcpu: 360, ramGb: 1440 },
+    ].map(({ gpu, chips, vcpu, ramGb }) => ({
+      id: gpu,
+      gpu,
+      label: `${chips}x Google TPU v6e ${chips * 32} GB, ${vcpu} vCPU, ${ramGb} GB RAM`,
+      machineType: `ct6e-standard-${chips}t`,
+      gpuType: "",
+      gpuCount: 0,
+      available: true,
+      spot: true,
+      tpu: true,
+    })),
     ...ON_DEMAND,
   ].map((p) => [p.id, p]),
 );

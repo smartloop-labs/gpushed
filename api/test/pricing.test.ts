@@ -24,8 +24,10 @@ describe("pricing", () => {
     expect(gcpHourlyUsd("a100-ondemand", "us-central1")).toBeCloseTo(3.6734, 3);
   });
 
-  it("has a price for every plan in every region", () => {
-    for (const r of REGIONS) for (const p of Object.values(PLANS)) expect(planPrice(p, r.id, 20), `${p.id} ${r.id}`).not.toBeNull();
+  it("has a price for every GPU plan in every region", () => {
+    for (const r of REGIONS) for (const p of Object.values(PLANS)) {
+      if (!p.tpu) expect(planPrice(p, r.id, 20), `${p.id} ${r.id}`).not.toBeNull();
+    }
     expect(planPrice(PLANS.l4, "mars-north1", 20)).toBeNull();
   });
 
@@ -90,6 +92,23 @@ describe("pricing", () => {
     expect(PLANS.rtx6000.spot).toBe(true);
     expect(gcpHourlyUsd("rtx6000-ondemand", "us-central1")).toBeCloseTo(4.5, 2);
     expect(gcpHourlyUsd("rtx6000", "us-central1")!).toBeLessThan(gcpHourlyUsd("rtx6000-ondemand", "us-central1")!);
+  });
+
+  it("offers TPU v6e, Spot only, priced per chip", () => {
+    for (const [id, chips] of [["v6e", 1], ["v6e-4", 4], ["v6e-8", 8]] as const) {
+      const p = PLANS[id];
+      expect(p.tpu, id).toBe(true);
+      expect(p.spot, id).toBe(true);
+      expect(p.available, id).toBe(true);
+      expect(p.machineType).toBe(`ct6e-standard-${chips}t`);
+      expect(PLANS[`${id}-ondemand`]).toBeUndefined();
+      expect(gcpHourlyUsd(id, "us-central1")).toBeCloseTo(REGION_PRICES["us-central1"].spot.v6e * chips, 5);
+      expect(offeredRegions("", id).length, id).toBeGreaterThan(0);
+    }
+    // Not sold in Taiwan, though it has a v6e zone.
+    expect(offeredRegions("", "v6e").map((r) => r.id)).not.toContain("asia-east1");
+    // One v6e chip costs well under a Spot A100.
+    expect(planPrice(PLANS.v6e, "us-central1", 20)!.hourlyMicros).toBeLessThan(planPrice(PLANS.a100, "us-central1", 20)!.hourlyMicros / 2);
   });
 
   it("$10 buys three to four hours of Spot A100, or two on-demand", () => {

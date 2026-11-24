@@ -401,7 +401,10 @@ create_box() {
   if [ "$(jq -r '.box.spot // false' <<<"$res")" = true ]; then
     say "   Spot box: Google may stop it at any time (disk kept; gpushed start resumes it)."
     p=$(jq -r .box.plan <<<"$res")
-    [ "$p" = h100 ] || say "   For work that mustn't be interrupted: gpushed up $p-ondemand"
+    case "$p" in
+      h100 | v6e*) ;; # sold only as Spot
+      *) say "   For work that mustn't be interrupted: gpushed up $p-ondemand" ;;
+    esac
   fi
   wait_for running
   require_running_box
@@ -523,7 +526,7 @@ case "$cmd" in
     # no status: treat the plan as available.
     jq -r '.plans[] | [
         .id,
-        ((.label | split(", ")[0] | sub("^1x NVIDIA "; "")) + (if .spot then " (Spot)" else "" end)),
+        ((.label | split(", ")[0] | sub("^1x "; "") | sub("(NVIDIA|Google) "; "")) + (if .spot then " (Spot)" else "" end)),
         "$\(.hourly_usd)",
         "$\(.stopped_hourly_usd)",
         ((.status // "available") as $s

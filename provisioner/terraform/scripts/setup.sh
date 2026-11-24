@@ -5,13 +5,19 @@ set -e
 # (build tools, Python 3.11, Node.js LTS, Rust) so users can start right away.
 # Normally baked into the gpushed-cuda image by image/build.sh, so a new box
 # skips it; it only runs at boot on a box created from stock Ubuntu.
+# A TPU box (/etc/gpushed/tpu, written by startup-wrapper.sh) boots Canonical's
+# TPU image, which already has the kernel side of the TPU: it skips the
+# NVIDIA driver and CUDA, and gets only the toolchain. Its runtime, libtpu,
+# comes with JAX, PyTorch/XLA or vLLM (`pip install "jax[tpu]"`).
 # NOTE: rendered by Terraform templatefile(); escape shell vars as $${var}.
 
 LOGFILE="/var/log/setup-script.log"
 exec 1> >(tee -a "$LOGFILE")
 exec 2>&1
 
-echo "Starting NVIDIA setup at $(date)..."
+TPU=0
+[ -s /etc/gpushed/tpu ] && TPU=1
+echo "Starting box setup at $(date) (TPU=$TPU)..."
 
 dpkg --configure -a || echo "WARNING: dpkg configure reported issues, continuing..."
 
@@ -72,17 +78,16 @@ Acquire::https::Timeout "20";
 APTCONF
 
 apt_retry update -y
-apt_install curl wget ca-certificates gnupg software-properties-common linux-headers-$(uname -r) dkms
+apt_install curl wget ca-certificates gnupg software-properties-common
+
+if [ "$TPU" = 0 ]; then
+apt_install "linux-headers-$(uname -r)" dkms
 
 # The NVIDIA module is built for this kernel. Keep unattended-upgrades from
 # moving to a new kernel underneath it (security updates still apply).
 cat > /etc/apt/apt.conf.d/51box-no-kernel-upgrades << 'UUCONF'
 Unattended-Upgrade::Package-Blacklist { "linux-"; };
 UUCONF
-
-# Runtime libraries common local-inference apps (llama.cpp/Vulkan builds such
-# as docent) link against; the stock image lacks them.
-apt_install libfontconfig1 libvulkan1 libgomp1
 
 # NVIDIA driver
 echo "Installing NVIDIA driver 535..."
@@ -117,8 +122,13 @@ export PATH=/usr/local/cuda/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 CUDAEOF
 chmod +x /etc/profile.d/cuda.sh
+fi # TPU = 0
 
 # ---------------------------------------------------------------- dev tools
+
+# Runtime libraries common local-inference apps (llama.cpp/Vulkan builds such
+# as docent) link against; the stock image lacks them.
+apt_install libfontconfig1 libvulkan1 libgomp1
 
 echo "Installing build tools..."
 apt_install build-essential git git-lfs cmake ninja-build pkg-config \
@@ -158,10 +168,14 @@ export PATH=$HOME/.cargo/bin:$PATH
 RUSTEOF
 chmod +x /etc/profile.d/rust.sh
 
-echo "Installed: $(python --version), node $(node --version), $(rustc --version), $(/usr/local/cuda/bin/nvcc --version | tail -1)"
+if [ "$TPU" = 1 ]; then
+  echo "Installed: $(python --version), node $(node --version), $(rustc --version); TPU box, no CUDA"
+else
+  echo "Installed: $(python --version), node $(node --version), $(rustc --version), $(/usr/local/cuda/bin/nvcc --version | tail -1)"
+fi
 apt-get clean
 
-echo "$(date): NVIDIA setup completed successfully" > /var/log/setup-completed
+echo "$(date): box setup completed successfully" > /var/log/setup-completed
 chmod 644 /var/log/setup-completed
 
-echo "NVIDIA setup complete at $(date)!"
+echo "Box setup complete at $(date)!"
