@@ -32,6 +32,16 @@ chmod 644 /etc/profile.d/local-bin.sh
 grep -q 'profile.d/local-bin.sh' /etc/bash.bashrc 2>/dev/null \
   || sed -i '1i [ -r /etc/profile.d/local-bin.sh ] \&\& . /etc/profile.d/local-bin.sh # gpushed' /etc/bash.bashrc
 
+# GitHub's published SSH host keys (api.github.com/meta), so the first
+# `git clone`/`git pull` over SSH, with the agent `gpushed ssh` forwards,
+# doesn't stop to ask about github.com. Runs on every boot.
+grep -q '^github\.com ssh-ed25519 ' /etc/ssh/ssh_known_hosts 2>/dev/null || cat >> /etc/ssh/ssh_known_hosts << 'GHKEYS'
+github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+GHKEYS
+chmod 644 /etc/ssh/ssh_known_hosts
+
 # Idle watcher: once the GPU has had nothing running on it, and nobody has been
 # connected over SSH, for gpushed-idle-minutes (instance metadata), ask the
 # gpushed API to stop this box, as `gpushed stop` would: the disk is kept and

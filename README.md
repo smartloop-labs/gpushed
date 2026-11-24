@@ -117,7 +117,7 @@ for 6 hours is deleted, credit or not.
 | `gpushed plans` | GPUs available and their prices |
 | `gpushed up [plan]` | Create your box and watch it install the driver + CUDA |
 | `gpushed status` | Show your box |
-| `gpushed ssh [cmd]` | SSH into the box, or run a command on it. Starts a stopped box first, or creates one (default plan) if you have none |
+| `gpushed ssh [cmd]` | SSH into the box, or run a command on it. Starts a stopped box first, or creates one (default plan) if you have none. Forwards your SSH agent, so `git clone`/`git pull` over SSH on the box use the keys on your computer (load one with `ssh-add`); GitHub's host key is already trusted there |
 | `gpushed cp SRC... DEST` | Copy files between this computer and the box with rsync, straight over SSH. Box paths start with `:` (a bare `:` is your home dir there): `gpushed cp data.csv :`, `gpushed cp :work/out ./`. Starts a stopped box first. Resumes partial transfers, skips unchanged files, and passes rsync options through (`--exclude=...`, `--delete`). As with rsync, `dir` copies the folder and `dir/` its contents |
 | `gpushed stop` / `start` | Pause and resume (disk kept) |
 | `gpushed down` | Delete the box and its disk |
