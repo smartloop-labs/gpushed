@@ -62,6 +62,7 @@
         { "@type": "Question", "name": "Can I run CUDA on a Mac?", "acceptedAnswer": { "@type": "Answer", "text": "Not locally: Apple silicon has no NVIDIA GPU, and CUDA needs one. gpushed gives your Mac a dedicated NVIDIA GPU in the cloud with CUDA 12.6 preinstalled, one command away, so you can run PyTorch, vLLM, Triton or your own CUDA kernels from your Mac's terminal." } },
         { "@type": "Question", "name": "Which GPU should I pick for fine-tuning an LLM?", "acceptedAnswer": { "@type": "Answer", "text": "For LoRA or QLoRA on 7B-8B models such as Llama, Mistral or Qwen, the L4 (24 GB) is the best value at $0.54/hour on Spot ($0.88 on-demand). Pick the A100 (40 GB) for 13B+ models, longer contexts, bigger batches or full fine-tuning of smaller models." } },
         { "@type": "Question", "name": "Can I use Jupyter or VS Code with the GPU?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Connect with plain SSH using the key gpushed keeps in ~/.gpushed/state, and forward a port for Jupyter, or point VS Code Remote-SSH at the box." } },
+        { "@type": "Question", "name": "Can I git clone private repos on the GPU box?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. gpushed ssh forwards your SSH agent, so git clone and git pull over SSH on the box use the keys on your laptop, and GitHub is already trusted there. Your keys never leave your machine; load one with ssh-add first." } },
         { "@type": "Question", "name": "How is gpushed billed?", "acceptedAnswer": { "@type": "Answer", "text": "Per second, from a prepaid balance (top up from $10 with Stripe), from the moment the box exists until it is deleted. A stopped box costs only its disk, about $0.03/hour, and is deleted after 6 hours stopped. If your balance runs out, the box is stopped, so you are never billed more than you put in." } },
         { "@type": "Question", "name": "What's installed on the GPU box?", "acceptedAnswer": { "@type": "Answer", "text": "Ubuntu 22.04 with the NVIDIA driver and CUDA Toolkit 12.6, plus Python 3.11 (pip and uv), Node.js 24 LTS, Rust, git and build tools, with full root access." } },
         { "@type": "Question", "name": "What is a Spot box?", "acceptedAnswer": { "@type": "Answer", "text": "Boxes are Spot VMs by default: about 40% cheaper, but Google may take the GPU back at any time with 30 seconds' notice. The box is then stopped with its disk and files kept, you get an email, and gpushed start resumes it. For work that mustn't be interrupted, pick an on-demand plan, e.g. gpushed up l4-ondemand." } },
@@ -685,7 +686,7 @@ name, memory.total [MiB]
         <div class="feature">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
           <h3>Private by default</h3>
-          <p>Your SSH key is generated on your machine and never leaves it. Only SSH is open, and boxes can't see each other.</p>
+          <p>Your SSH key is generated on your machine and never leaves it; git on the box borrows your own keys through agent forwarding. Only SSH is open, and boxes can't see each other.</p>
         </div>
       </div>
     </div>
@@ -755,6 +756,10 @@ name, memory.total [MiB]
           <details>
             <summary>Can I use Jupyter or VS Code?</summary>
             <p>Yes. Connect with plain SSH using the key in <code>~/.gpushed/state/box_ssh_key</code> (the IP is in <code>gsh status</code>) and forward a port for Jupyter, or add the box as a host in VS Code Remote-SSH.</p>
+          </details>
+          <details>
+            <summary>Can I git clone my private repos on the box?</summary>
+            <p>Yes. <code>gsh ssh</code> forwards your SSH agent, so <code>git clone</code> and <code>git pull</code> over SSH on the box use the keys on your laptop, and GitHub is already trusted there. Your keys never leave your machine. Load one first with <code>ssh-add</code> if <code>ssh-add -l</code> shows none; with plain <code>ssh</code>, add <code>-A</code>.</p>
           </details>
           <details>
             <summary>Does it work on Linux or Windows?</summary>
