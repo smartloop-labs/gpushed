@@ -562,7 +562,16 @@ case "$cmd" in
 
   ssh)
     wake_box create
-    exec ssh "${SSH_OPTS[@]}" -t "$BOX_USER@$BOX_IP" "$@"
+    # Forward this computer's SSH agent, so `git pull`/`git clone` over SSH on
+    # the box use your own keys (they never leave this computer). The agent
+    # needs a key loaded; ssh-add -l exits 1 for none, 2 for no agent at all.
+    agent=0; ssh-add -l >/dev/null 2>&1 || agent=$?
+    if [ $agent = 1 ]; then
+      say "💡 Your SSH agent has no keys, so git over SSH won't work on the box. Run ssh-add first." >&2
+    elif [ $agent = 2 ]; then
+      say "💡 No SSH agent running, so git over SSH won't work on the box. Start one: eval \"\$(ssh-agent)\" && ssh-add" >&2
+    fi
+    exec ssh "${SSH_OPTS[@]}" -A -t "$BOX_USER@$BOX_IP" "$@"
     ;;
 
   cp)
