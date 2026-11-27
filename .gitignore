@@ -32,3 +32,8 @@ box_ssh_key.pub
 # Docent local state
 .docent/
 .wrangler/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
