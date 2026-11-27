@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://gpushed.dev"><img src=".github/assets/banner.png" alt="gpushed: your NVIDIA GPU, one box away" width="100%"></a>
+</p>
+
 # gpushed
 
 > **macOS and Linux.** Needs `curl`, `jq` and `ssh`. Windows isn't supported
